@@ -4,12 +4,13 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_FILES = ("__init__.py", "primitives.py", "operators.py", "panel.py")
+RUNTIME_FILES = ("__init__.py", "primitives.py", "operators.py", "panel.py", "bridge.py")
 
 
 def main():
     source = ROOT / "addon" / "air_modeler"
     contents = {name: (source / name).read_bytes() for name in RUNTIME_FILES}
+    contents["_protocol.py"] = (ROOT / "shared" / "protocol.py").read_bytes()
     destination = ROOT / "dist" / "air_modeler.zip"
     destination.parent.mkdir(exist_ok=True)
     with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:

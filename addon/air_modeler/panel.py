@@ -1,6 +1,8 @@
 import bpy
+import textwrap
 
 from .primitives import SHAPES
+from . import bridge
 
 
 class AIRMODELER_PT_primitives(bpy.types.Panel):
@@ -17,3 +19,11 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         column = layout.column(align=True)
         for shape, label, _ in SHAPES:
             column.operator("air_modeler.create_primitive", text=f"Create {label}").shape = shape
+        box = layout.box()
+        state, message, error, running = bridge.ui_state()
+        box.label(text=f"Bridge: {state}")
+        row = box.row(align=True)
+        row.operator("air_modeler.connect")
+        row.operator("air_modeler.disconnect")
+        for line in textwrap.wrap(error or message, width=40)[:6]:
+            box.label(text=line)

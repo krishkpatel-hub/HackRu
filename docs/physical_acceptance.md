@@ -1,14 +1,15 @@
 # Air Modeler 0.7.0 physical acceptance
 
-**Run has not started.** Target branch: `feature/blender`. Record exact
-`git rev-parse HEAD` before starting; installed add-on must report **0.7.0**, Blender
+**Setup in progress; modeling checks have not started.** Target branch:
+`feature/blender`; checkout at setup start is
+`a59445232f24704395d3c76563b75ab742cfcfb0`. Installed add-on must report **0.7.0**, Blender
 **5.2.2 LTS**, camera **0**, microphone **0 (MacBook Air Microphone)**.
 
 | Run identity | Recorded observation |
 | --- | --- |
-| Tested checkout SHA | NOT RUN — record exact SHA before first physical action |
-| Installed add-on version | NOT RUN for 0.7.0 |
-| Blender version | User previously reported 5.2.2; reconfirm for this run |
+| Checkout at setup start | `a59445232f24704395d3c76563b75ab742cfcfb0`; modeling tests NOT RUN |
+| Installed add-on version | User confirmed installed and enabled 0.7.0 after restarting Blender |
+| Blender version | User reconfirmed 5.2.2 for this run |
 | Camera / microphone | User confirmed 0 / 0; actual connected status pending new run |
 | Previous startup evidence | User observed installed 0.6.0, two_hands=True, Scribe ready; startup only |
 
@@ -44,8 +45,17 @@ overwrite `demo.blend` or `demo.blend1`.
 
 ## Observations
 
-No 0.7.0 physical actions have been performed or reported yet. The complete
-implementation and automated evidence are in [clutch handoff](clutch_handoff.md).
+2026-10-10 — Item 1 partial: user reported “saved” after being guided to save a
+separate rehearsal copy. Repository status shows untracked `rehearsal_070.blend`;
+it and the existing untracked demo files are preserved.
+
+2026-10-10 — Item 1 partial: user confirmed “Installed and enabled 0.7.0 after
+restarting Blender 5.2.2.” Companion launch, bridge/hand/voice readiness and
+anatomical identity checks remain pending. Item 1 and all modeling checks remain
+NOT RUN; installation alone does not complete the connection check.
+
+The complete implementation and automated evidence are in
+[clutch handoff](clutch_handoff.md).
 When a row fails, record its exact action, selected object/face, mode/phase, error,
 required hand states and timing. Fix demonstrated failures, rebuild/reinstall if
 necessary, record the new commit/version and rerun affected physical checks.

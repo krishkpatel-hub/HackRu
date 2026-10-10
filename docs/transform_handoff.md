@@ -1,3 +1,7 @@
+# Current extrusion support
+
+Version 0.5.0 adds EXTRUDE; see [Extrusion handoff](extrusion_handoff.md). The following records 0.4.0 transform behavior and verification. Its unsupported-extrusion statements are historical. Live voice verification was subsequently recorded by V in [voice handoff](voice_handoff.md); sponsor attribution remains unconfirmed.
+
 # ROTATE and uniform SCALE handoff (P, add-on 0.4.0)
 
 Extends MOVE baseline `236991fce5af63b8136abe9cf815fcbbcf3548ab` on `feature/blender`. One controller, picker, gesture lifecycle, tracking watchdog, transport writer, and Undo strategy remain in use. No public protocol/callback changes or teammate-module edits. Root README has no horizontal-scale statement and remains unchanged. EXTRUDE is still explicitly unsupported.

@@ -51,3 +51,31 @@ class AIRMODELER_OT_commit_transform(bpy.types.Operator):
         from .transforms import apply_matrix
         apply_matrix(obj, Matrix(tuple(self.matrix[i:i+4] for i in range(0, 16, 4))), self.scale_signs)
         return {'FINISHED'}
+
+
+class AIRMODELER_OT_commit_extrusion(bpy.types.Operator):
+    bl_idname = "air_modeler.commit_extrusion"
+    bl_label = "Air Modeler Extrude Face"
+    bl_options = {"UNDO", "INTERNAL"}
+
+    target_name: bpy.props.StringProperty()
+    face_index: bpy.props.IntProperty()
+    distance: bpy.props.FloatProperty()
+    maximum_distance: bpy.props.FloatProperty()
+    negligible_distance: bpy.props.FloatProperty()
+
+    def execute(self, context):
+        from dataclasses import replace
+        from . import extrusion
+        obj = context.view_layer.objects.get(self.target_name)
+        if obj is None or context.mode != 'OBJECT':
+            return {'CANCELLED'}
+        try:
+            config = replace(extrusion.CONFIG, maximum_distance=self.maximum_distance,
+                             negligible_distance=self.negligible_distance)
+            if not extrusion.commit(obj, self.face_index, self.distance, config):
+                return {'CANCELLED'}
+        except (ValueError, RuntimeError) as exc:
+            self.report({'ERROR'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}

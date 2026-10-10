@@ -6,7 +6,7 @@ import socket
 import time
 from types import SimpleNamespace
 
-from . import viewport, transforms
+from . import viewport, transforms, extrusion
 import math
 
 import bpy
@@ -80,6 +80,8 @@ class Client:
         self.tracking = False
         self.last_input = 0
         self.last_present = 0
+        self.face_outline = ()
+        self.target_message = ""
         self.cursor = None
         self.hovered = None
         self.drag = None
@@ -125,6 +127,7 @@ class Client:
         self.session = protocol.Session("client")
         self.tracking = False
         self.cursor = self.hovered = None
+        self.face_outline = ()
         self.seen_gestures.clear()
 
     def error(self, error):
@@ -144,21 +147,28 @@ class Client:
             label += f" {math.degrees(self.drag.amount):+.1f}°"
         elif self.drag and self.drag.mode == "SCALE":
             label += f" {self.drag.amount:.3f}x"
+        elif self.drag and self.drag.mode == "EXTRUDE":
+            label += f" {self.drag.amount:.3f} units"
         return label
 
     def set_mode(self, mode, axis="Z"):
         if self.drag:
             raise RuntimeError("Release or cancel the active drag first")
-        if mode not in {"MOVE", "ROTATE", "SCALE"}:
+        if mode not in {"MOVE", "ROTATE", "SCALE", "EXTRUDE"}:
             raise RuntimeError(f"{mode} is not implemented in this milestone")
         self.mode, self.axis = mode, axis
+        self.face_outline = ()
+        self.target_message = "Point at a flat convex outer triangle/quad" if mode == "EXTRUDE" else ""
         self.next_status = 0
 
     def cancel_drag(self, *, preserve_mode=False):
         global _needs_release
         obj = self.target()
+        if self.drag and self.drag.geometry is not None:
+            self.drag.geometry.restore(obj)
         if obj is not None:
             transforms.apply_matrix(obj, self.drag.baseline, self.drag.scale_signs)
+        self.face_outline = ()
         self.drag = None
         if not preserve_mode:
             self.mode = "MOVE"
@@ -167,9 +177,20 @@ class Client:
         self.next_status = 0
 
     def observe(self, uv):
+        global _last_error
         self.cursor = uv
         self.tracking = True
         self.last_present = self.last_input = time.monotonic()
+        if self.mode == "EXTRUDE":
+            if self.drag:
+                self.face_outline = self.drag.geometry.outline()
+                return
+            hit, error = viewport.pick_extrusion(self.context(), viewport.mapping(self.context()), uv)
+            self.hovered = hit[0].name if hit else None
+            self.face_outline = hit[3] if hit else ()
+            self.target_message = f"Face {hit[2]}: ready" if hit else error
+            _last_error = error
+            return
         hit, _ = viewport.pick(self.context(), viewport.mapping(self.context()), uv)
         self.hovered = hit[0].name if hit else None
 
@@ -179,6 +200,11 @@ class Client:
             self.cancel_drag()
             return
         drag = self.drag
+        if drag.mode == "EXTRUDE":
+            drag.amount = extrusion.distance(drag.start[1], uv[1], drag.geometry.config)
+            drag.geometry.update(drag.amount)
+            self.face_outline = drag.geometry.outline()
+            return
         if drag.mode != "MOVE":
             matrix, drag.amount = transforms.preview_matrix(
                 drag.baseline, drag.mode, drag.axis, drag.start, uv, drag.config)
@@ -225,10 +251,18 @@ class Client:
                     return
             uv = payload["u"], payload["v"]
             view = viewport.mapping(context)
-            hit, rejected = viewport.pick(context, view, uv)
+            face_index = None
+            rejection = None
+            if self.mode == "EXTRUDE":
+                face_hit, rejection = viewport.pick_extrusion(context, view, uv)
+                hit = face_hit[:2] if face_hit else None
+                face_index = face_hit[2] if face_hit else None
+                rejected = rejection is not None
+            else:
+                hit, rejected = viewport.pick(context, view, uv)
             self.observe(uv)
             if hit is None:
-                self.error("Unsupported target: use an editable unparented mesh without modifiers, constraints or animation" if rejected else "Pinch missed; release before trying again")
+                self.error(rejection or ("Unsupported target: use an editable unparented mesh without modifiers, constraints or animation" if rejected else "Pinch missed; release before trying again"))
                 self.cancel_drag(preserve_mode=True)
                 return
             obj, point = hit
@@ -245,9 +279,12 @@ class Client:
             self.drag = SimpleNamespace(identifier=identifier, target_id=obj.session_uid,
                                         baseline=obj.matrix_world.copy(), scale_signs=tuple(obj.scale), view=view,
                                         mode=self.mode, axis=self.axis, start=uv,
-                                        config=transforms.CONFIG, amount=1.0 if self.mode == "SCALE" else 0.0,
+                                        geometry=None, config=transforms.CONFIG, amount=1.0 if self.mode == "SCALE" else 0.0,
                                         point=point, normal=normal, grab=grab,
                                         max_delta=max(100, (point - viewport.ray(view, uv)[0]).length * 10))
+            if self.mode == "EXTRUDE":
+                self.drag.geometry = extrusion.Preview(obj, face_index, extrusion.CONFIG)
+                self.face_outline = self.drag.geometry.outline()
             self.phase = "DRAGGING"
             _last_error, _message = None, f"{self.mode_label()}: release to commit; Escape to cancel"
             return
@@ -263,6 +300,25 @@ class Client:
             self.preview(self.cursor)
             obj = self.target()
             if obj is None:
+                return
+            if self.drag.mode == "EXTRUDE":
+                geometry = self.drag.geometry
+                amount, index, config = self.drag.amount, geometry.face_index, geometry.config
+                name = obj.name
+                geometry.restore(obj)
+                self.drag = None
+                self.face_outline = ()
+                self.mode, self.phase, _needs_release = "MOVE", "IDLE", False
+                if amount > config.negligible_distance:
+                    with bpy.context.temp_override(**self.context()):
+                        result = bpy.ops.air_modeler.commit_extrusion(
+                            "EXEC_DEFAULT", True, target_name=name, face_index=index,
+                            distance=amount, maximum_distance=config.maximum_distance,
+                            negligible_distance=config.negligible_distance)
+                    if result != {"FINISHED"}:
+                        self.cancel_drag()
+                        raise RuntimeError("Extrusion commit failed; baseline restored")
+                _last_error, _message = None, "EXTRUDE committed" if amount > config.negligible_distance else "Zero extrusion restored; MOVE ready"
                 return
             baseline = self.drag.baseline.copy()
             final = obj.matrix_world.copy()
@@ -319,7 +375,7 @@ class Client:
         except protocol.SessionFull:
             raise
         except (RuntimeError, ReferenceError, TypeError, ValueError) as exc:
-            if self.drag and kind.startswith("gesture_"):
+            if self.drag and kind != "command":
                 self.cancel_drag()
             self.error(exc)
 
@@ -332,7 +388,7 @@ class Client:
                 if bpy.context.mode != "OBJECT":
                     raise RuntimeError("Left Object Mode; drag cancelled")
             obj = self.target()
-            if obj is None or not viewport.eligible(obj, context):
+            if obj is None or not viewport.eligible(obj, context) or (self.drag.geometry is not None and obj.data != self.drag.geometry.mesh):
                 self.cancel_drag()
                 self.error("Drag target disappeared or became unsupported")
             elif now - self.last_present >= .5:

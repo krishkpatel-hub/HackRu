@@ -37,7 +37,7 @@ Blender → companion: `status`. Both directions send the initial `hello` as des
 
 Coordinates must be finite numbers in `[0, 1]`; boolean values are not coordinates. Only absent `hand_frame` observations (`present: false`) may use null coordinates, with both `u` and `v` null. Visible/start/end coordinates cannot be null. Text fields allow at most 1024 Unicode characters and must encode as UTF-8. Extra payload fields are rejected.
 
-**Spawn, MOVE, ROTATE and SCALE** change the scene. Matching gesture start/end/cancel events control the armed transform; frames only report/update an existing preview. Commands `cancel`, `undo`, and `set_mode: MOVE/ROTATE/SCALE` are implemented. EXTRUDE remains visibly unsupported. See [MOVE handoff](move_handoff.md) for lifecycle, camera setup, and validation.
+**Spawn, MOVE, ROTATE, SCALE and single-face EXTRUDE** change the scene. Matching gesture start/end/cancel events control the armed transform; frames only report/update an existing preview. Commands `cancel`, `undo`, and `set_mode: MOVE/ROTATE/SCALE/EXTRUDE` are implemented. See [MOVE handoff](move_handoff.md) for lifecycle, camera setup, and validation.
 
 Example status (at most 4 Hz while idle, also after received actions/errors):
 
@@ -45,7 +45,7 @@ Example status (at most 4 Hz while idle, also after received actions/errors):
 {"v":1,"type":"status","session_id":"9a6d7dd7-1ee2-46a4-95cb-cf34d2fb92a6","seq":2,"payload":{"mode":"MOVE","phase":"IDLE","selected_object":"Air Cube","hovered_object":null,"tracking":false,"last_error":null}}
 ```
 
-`mode` is the armed MOVE, ROTATE or SCALE; `phase` is the actual IDLE, DRAGGING, or NEEDS_RELEASE state. `selected_object` is the selected active object's name or null. `hovered_object` is the nearest eligible mesh under the cursor or null; passive hover never selects. `tracking` requires a present observation within 0.5 seconds. `last_error` is a readable rejection/recovery diagnostic, cleared by a successful command or gesture. Status is state reporting, not a per-command acknowledgement.
+`mode` is the armed MOVE, ROTATE, SCALE or EXTRUDE; `phase` is the actual IDLE, DRAGGING, or NEEDS_RELEASE state. `selected_object` is the selected active object's name or null. `hovered_object` is the nearest eligible mesh under the cursor or null; passive hover never selects. `tracking` requires a present observation within 0.5 seconds. `last_error` is a readable rejection/recovery diagnostic, cleared by a successful command or gesture. Status is state reporting, not a per-command acknowledgement.
 
 A start uses its own coordinates and locks a target, original transform, mode, axis, sensitivity and fixed view mapping. Frames preview from the original transform only; matching end honors final coordinates and creates one undoable transform, then returns to MOVE. Absent frames freeze immediately; 0.5 seconds without a present observation cancels, including stopped streams. Interruptions restore baseline and require a fresh present, non-pinching frame before another start. H independently enforces physical release; its `pinching` flag means gesture-active, never permission to start editing. Duplicate starts are remembered per session (4096 limit); mismatched ends/cancels are ignored. Spawn and mode changes during drag are rejected. Cancel/Undo/Escape and cleanup behavior are detailed in the handoff.
 
@@ -100,6 +100,8 @@ status
 quit
 ```
 
-Typed input now reuses V's parser and UUID emitter: `create cube`, `create sphere`, `create cylinder`, `create triangular prism`, `rotate`, `rotate x/y/z`, `scale`, `move`, `cancel`, and `undo`. Strict `spawn <shape>` aliases are translated to V's create phrase. `quit`, EOF, or Ctrl-C stops workers and transport; no stale replay occurs. `QUEUED` is not an acknowledgement. No camera/audio packages or keys are needed for typed/synthetic operation. Optional `--camera N`, `--mic`, and `--synthetic` are documented in [MOVE handoff](move_handoff.md); discover N through the hands module before selecting it.
+Typed input now reuses V's parser and UUID emitter: `create cube`, `create sphere`, `create cylinder`, `create triangular prism`, `rotate`, `rotate x/y/z`, `scale`, `extrude`, `move`, `cancel`, and `undo`. Strict `spawn <shape>` aliases are translated to V's create phrase. `quit`, EOF, or Ctrl-C stops workers and transport; no stale replay occurs. `QUEUED` is not an acknowledgement. No camera/audio packages or keys are needed for typed/synthetic operation. Optional `--camera N`, `--mic`, and `--synthetic` are documented in [MOVE handoff](move_handoff.md); discover N through the hands module before selecting it.
 
 ROTATE uses horizontal displacement around a world axis; SCALE intentionally uses upward vertical displacement to enlarge. Numeric mappings, mode reset, local angle/factor display and generalized commit details are in [Transform handoff](transform_handoff.md). The status schema is unchanged; axis/angle/factor appear locally in the sidebar/cursor text.
+
+EXTRUDE uses the same lifecycle with an isolated geometry preview and separate geometry Undo operator. Original-mesh face picking, eligible-face outline/rejection feedback, outward vertical distance, ownership and restoration are documented in [Extrusion handoff](extrusion_handoff.md). No wire fields or callback signatures changed; face index/distance remain local UI details.

@@ -97,8 +97,43 @@ def draw(client):
     shader.uniform_float('color', color)
     batch_for_shader(shader, 'LINE_STRIP', {'pos': points}).draw(shader)
 
+    if client.face_outline:
+        rv = context.space_data.region_3d
+        outline = [view3d_utils.location_3d_to_region_2d(context.region, rv, point) for point in client.face_outline]
+        if all(point is not None for point in outline):
+            shader.bind()
+            shader.uniform_float('color', (1, .7, .05, 1))
+            batch_for_shader(shader, 'LINE_STRIP', {'pos': [*outline, outline[0]]}).draw(shader)
+
     import blf
     blf.position(0, x + 16, y + 16, 0)
     blf.size(0, 14)
     blf.color(0, *color)
     blf.draw(0, client.mode_label())
+
+
+def pick_extrusion(context, view, uv):
+    from . import extrusion
+    origin, direction = ray(view, uv)
+    nearest = None
+    for obj in context['view_layer'].objects:
+        if obj.type != 'MESH' or not obj.visible_get(view_layer=context['view_layer'], viewport=context['area'].spaces.active):
+            continue
+        if abs(obj.matrix_world.determinant()) <= 1e-10:
+            continue
+        hit = extrusion.ray_hit(obj, origin, direction)
+        if hit:
+            point, index = hit
+            distance = (point - origin).dot(direction)
+            if distance >= 0 and (nearest is None or distance < nearest[0]):
+                nearest = distance, obj, point, index
+    if nearest is None:
+        return None, 'No eligible face under cursor (singular transforms are unsupported)'
+    _, obj, point, index = nearest
+    try:
+        if not eligible(obj, context):
+            raise ValueError('EXTRUDE requires a visible editable unparented mesh without enabled modifiers')
+        _, vertices = extrusion.face_info(obj, index)
+    except ValueError as exc:
+        return None, str(exc)
+    return (obj, point, index, tuple(obj.matrix_world @ v for v in vertices)), None

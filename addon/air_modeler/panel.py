@@ -23,9 +23,11 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         state, message, error, running = bridge.ui_state()
         box.label(text=f"Bridge: {state}")
         box.label(text="Pinch, drag, release")
-        box.label(text="EXTRUDE: not implemented")
         if bridge._runtime is not None:
             box.label(text=bridge._runtime.mode_label())
+            if bridge._runtime.mode == "EXTRUDE":
+                for line in textwrap.wrap(bridge._runtime.target_message, width=40):
+                    box.label(text=line)
             box.label(text=f"Phase: {bridge._runtime.phase}")
             box.label(text=f"Hover: {bridge._runtime.hovered or '—'}")
             box.label(text="Tracking" if bridge._runtime.tracking else "No hand")

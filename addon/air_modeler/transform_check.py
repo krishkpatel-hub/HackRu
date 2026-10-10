@@ -228,8 +228,8 @@ class Check(helpers.Check):
         print('PASS negative scale signs and world matrices in Euler/quaternion/axis-angle modes', flush=True)
         self.line('extrude')
         yield .1
-        assert 'not implemented' in self.module.bridge.ui_state()[2]
-        print('PASS scale bounds, captured config, unchanged release, unsupported extrusion', flush=True)
+        assert self.runtime().mode == 'EXTRUDE'
+        print('PASS scale bounds, captured config, unchanged release, extrusion mode arming', flush=True)
         self.line('quit')
         yield .2
         assert self.runtime() is None

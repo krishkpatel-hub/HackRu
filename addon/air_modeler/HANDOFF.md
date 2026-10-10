@@ -1,3 +1,7 @@
+# Current milestone: single-face EXTRUDE (0.5.0)
+
+See [Extrusion handoff](../../docs/extrusion_handoff.md) for supported faces, resource/Undo ownership, installation, checks and live rehearsal. Prior milestone records below are historical.
+
 # Current milestone: ROTATE and SCALE (0.4.0)
 
 See [Transform handoff](../../docs/transform_handoff.md) for the current mappings, package/update steps, interfaces and validation. Prior milestone records below are historical.

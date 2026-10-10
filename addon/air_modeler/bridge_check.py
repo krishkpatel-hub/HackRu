@@ -220,8 +220,8 @@ class Check:
         elif self.stage == "context_connected" and self.ready and self.module.bridge.ui_state()[0] == "Connected":
             self.send({"type": "command", "payload": {"id": str(uuid4()), "action": "set_mode", "mode": "EXTRUDE"}})
             self.stage = "unsupported"
-        elif self.stage == "unsupported" and "not implemented" in self.last_status:
-            print("PASS unsupported modeling action is visibly rejected", flush=True)
+        elif self.stage == "unsupported" and "EXTRUDE" in self.last_status:
+            print("PASS EXTRUDE mode is armed through existing command path", flush=True)
             self.send({"test": "quit"})
             self.stage = "shutdown"
         elif self.stage == "shutdown" and self.module.bridge._runtime is None:

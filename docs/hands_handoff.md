@@ -117,7 +117,13 @@ Actually performed:
 **Not verified:**
 - Longer sessions (>10 min), other lighting/backgrounds, and a second person's hand; the tests used one tester in a dim room.
 - Windows/Linux (code has no platform-specific paths besides the macOS main-thread rule).
-- Tuning of the thresholds/smoothing on real hand motion; dropout behavior of MediaPipe when fingers overlap in a pinch.
+- Smoothing value on real drags (0.5 default, not tuned by feel), and a pinch with Blender actually consuming the events.
+
+## Compatibility with Pro's validator (checked 2026-10-10)
+
+All 4,267 events captured from live runs (4,245 `hand_frame`, 11 `gesture_start`, 4 `gesture_end`, 7 `gesture_cancel`) pass `shared.protocol.validate_event`
+and `encode` from `origin/feature/blender` (b2de11b) with 0 rejections. Not yet done: a pinch-and-drag consumed by Blender, since that branch
+documents movement/gesture handling as not implemented.
 
 ## Known limitations
 

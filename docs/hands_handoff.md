@@ -105,8 +105,11 @@ Actually performed:
 
 - Live laptop camera (index 2, headless, run in a thread): ~29 Hz `hand_frame`, hand detected in some frames, `stop_event` ends the thread and releases the camera. (Index 0 was a phone feed at 1080p: ~24 Hz and black.) Camera access had to be granted to the host terminal first.
 
+- Live hand session, laptop camera index 2, preview window, CLI (`--camera 2`), ~2.3 min, 4,087 `hand_frame`s: the tester ran open hand, pinch/hold, move+release, and out-of-view/return, and reported all behaved correctly with the lowest pinch ratio seen = **0.12** (default `pinch_start` 0.35 leaves ample margin). Log: 11 gestures = 4 clean start/end pairs and 7 `tracking_lost` cancels (each exactly once; none restarted while still pinched). Cursor u/v stayed in 0.05–0.97 / 0.13–0.94. Whether individual cancels were deliberate hand-outs or MediaPipe dropouts was not recorded.
+- Three loss gaps of 0.34 s, 0.48 s and 0.59 s occurred mid-pinch: the first two were absorbed (same gesture), the third cancelled. These sit near `loss_cancel_s` (0.5), so if real pinches get cancelled by brief dropouts, raise `loss_cancel_s` (e.g. 0.8) at the cost of slower cancel.
+
 **Not verified:**
-- Pinch ratios and real pinch/release/loss gestures on a live hand, the GUI preview window, and Ctrl-C of the CLI with the camera running.
+- The *open-hand* ratio value on a live hand (not logged), and whether the cancels were all intentional.
 - Windows/Linux (code has no platform-specific paths besides the macOS main-thread rule).
 - Tuning of the thresholds/smoothing on real hand motion; dropout behavior of MediaPipe when fingers overlap in a pinch.
 

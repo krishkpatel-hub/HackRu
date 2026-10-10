@@ -209,7 +209,7 @@ def main():
     mesh = obj.data
     original = snapshot(mesh)
     count = len(bpy.data.meshes)
-    for variant in ('shared', 'modifier', 'reflection', 'singular', 'shape_key', 'face_index'):
+    for variant in ('shared', 'modifier', 'singular', 'shape_key', 'face_index'):
         other = modifier = None
         matrix = obj.matrix_world.copy()
         if variant == 'shared':

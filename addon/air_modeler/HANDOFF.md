@@ -1,3 +1,5 @@
+> Current **0.9.0** stabilization: [handoff](../../docs/clutch_handoff.md). Install matching v3 companion/package; physical acceptance is pending.
+
 > Current 0.8.0 controls, build and evidence: [clutch handoff](../../docs/clutch_handoff.md). Earlier versions below are historical.
 
 > Historical 0.7.0 controls, launch and verification: [clutch handoff](../../docs/clutch_handoff.md). Historical milestones follow.

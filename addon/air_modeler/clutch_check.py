@@ -37,7 +37,11 @@ def observed(uv=(.5,.5), **changes):
     value=dict(valid=True,confidence=.99,u=uv[0],v=uv[1],palm_u=.5,palm_v=.5,
         pinching=False,open=True,gesture_id=None,event='NONE',shape_valid=True,shape_error=None,
         angle=0.,openness=1.,open_palm=True,extrude_pose=True,pinch_pending=False)
-    value.update(changes);return value
+    value.update(changes)
+    angle=value['angle']
+    value['orientation']=changes.get('orientation',[math.cos(angle/2),0.,0.,math.sin(angle/2)] if angle is not None else None)
+    value['fingers']=changes.get('fingers',[value['openness']]*4 if value['shape_valid'] else None)
+    return value
 
 
 def absent():
@@ -75,7 +79,7 @@ class Check(helpers.Check):
             self.hands['Right'] = dict(right)
         self.capture_id += 1
         self.last_capture = time.monotonic()
-        self.send(dict(type='hands_frame', payload=dict(profile='left_clutch_v2',frame_id=self.capture_id,
+        self.send(dict(type='hands_frame', payload=dict(profile='left_clutch_v3',aspect=4/3,frame_id=self.capture_id,
                   t=self.last_capture-self.capture_origin,
                   hands={name: dict(value) for name, value in self.hands.items()})))
         # Boundaries occur once; the heartbeat keeps only the observed held state.
@@ -187,34 +191,48 @@ class Check(helpers.Check):
     def right_pinch(self, uv=(.5,.5), event='NONE', gid=None):
         if event=='START': self.right_gid=gid or str(uuid4())
         self.capture(right=observed(uv,open=event=='END',pinching=event!='END',
-            gesture_id=gid or self.right_gid,event=event,openness=.8,open_palm=False,
+            gesture_id=gid or self.right_gid,event=event,openness=.8,fingers=[.2,1.,1.,1.],open_palm=False,
             extrude_pose=True,pinch_pending=event!='END'))
 
     def arm_extrusion(self, phrase, index):
         center,normal=self.aim(index)
+        # Aim Left at the OPPOSITE side; intended drag must still select the
+        # hidden requested face rather than either hand's raycast.
+        opposite=min(range(len(self.obj().data.polygons)),key=lambda i:
+            (self.obj().matrix_world.to_3x3().inverted().transposed()@self.obj().data.polygons[i].normal).normalized().dot(normal))
+        self.aim(opposite)
         yield .12
         yield from self.idle()
         before=geometry.snapshot(self.obj().data)
         if phrase:
+            if phrase.startswith('extend '):
+                self.line('extrude plane xz axis z')
+                yield from self.until(lambda:self.runtime().plane=='XZ','fixed distance plane selection')
             self.line(phrase)
             yield from self.until(lambda:self.runtime().override and self.runtime().mode=='EXTRUDE',phrase)
         assert geometry.snapshot(self.obj().data)==before
         yield from self.start(right=palm(),uv=(.5,.5))
-        assert self.runtime().drag.face_index==index and self.runtime().face_outline
+        assert self.runtime().drag.face_index is None and not self.runtime().face_outline
         self.right_pinch(event='START')
         yield from self.lock('EXTRUDE')
+        assert self.runtime().drag.geometry is None
+        self.mapped_vector(normal*.35)
+        yield from self.until(lambda:self.runtime().drag.face_index is not None,'automatic face lock')
+        assert self.runtime().drag.face_index==index and self.runtime().face_outline
+        assert geometry.snapshot(self.obj().data)==before,'direction lock mutated topology'
+        yield .15
         return center,normal
 
     def mapped_vector(self, vector, event='NONE'):
         drag=self.runtime().drag
-        du=Vector(vector).dot(Vector(drag.plane.horizontal))/drag.plane.sensitivity
+        du=Vector(vector).dot(Vector(drag.plane.horizontal))/drag.plane.sensitivity/drag.aspect
         dv=-Vector(vector).dot(Vector(drag.plane.vertical))/drag.plane.sensitivity
         uv=drag.pinch_reference[0]+du,drag.pinch_reference[1]+dv
         self.right_pinch(uv,event)
         return uv
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,8,0)
+        assert self.module.bl_info['version']==(0,9,0)
         self.window.scene.cursor.location=(0,0,0)
         self.line('create cube')
         yield from self.until(lambda:len(self.objects())==1,'spawn cube')
@@ -274,14 +292,16 @@ class Check(helpers.Check):
 
         # Image-plane whole-hand twist, each explicit world axis, left ignored.
         for axis in ('Z','X','Y'):
-            if axis!='Z':
+            if True:
                 self.line('rotate '+axis.lower())
                 yield from self.until(lambda:self.runtime().override and self.runtime().axis==axis,'rotation override')
             yield from self.start()
-            self.capture(right=palm(angle=.3));yield from self.lock('ROTATE')
+            def rotated(a):
+                return observed(orientation=list(Quaternion(Vector(tuple(1. if x==axis else 0. for x in 'XYZ')),a)))
+            self.capture(right=rotated(.3));yield from self.lock('ROTATE')
             assert same(self.obj().matrix_world,baseline)
-            self.capture(right=palm(angle=.6))
-            expected=Matrix.Rotation(.3,4,axis)@baseline;expected.translation=baseline.translation
+            self.capture(right=rotated(.6))
+            expected=Matrix.Rotation((.3-math.radians(2))*math.pi/(math.pi-math.radians(2)),4,axis)@baseline;expected.translation=baseline.translation
             yield from self.until_stable(lambda:same(self.obj().matrix_world,expected),'whole twist')
             self.owner_at((.1,.9));yield .12
             assert same(self.obj().matrix_world,expected)
@@ -318,11 +338,30 @@ class Check(helpers.Check):
         yield from self.release();yield from self.undo_matrix(baseline)
         print('PASS whole-finger SCALE through fist/contact/reopening, near-closed starts, translation/twist ignored and Undo',flush=True)
 
+        # Default FREE rotation exercises actual controller, native commit and
+        # short required-hand recovery for each independent camera-frame axis.
+        for axis in 'XYZ':
+            qaxis=Vector(tuple(1. if x==axis else 0. for x in 'XYZ'))
+            def free(a):return observed(orientation=list(Quaternion(qaxis,a)))
+            yield from self.start()
+            self.capture(right=free(.3));yield from self.lock('ROTATE')
+            assert self.runtime().drag.axis=='FREE' and same(self.obj().matrix_world,baseline)
+            self.capture(right=free(.6))
+            expected=Matrix.Rotation((.3-math.radians(2))*math.pi/(math.pi-math.radians(2)),4,axis)@baseline
+            expected.translation=baseline.translation
+            yield from self.until_stable(lambda:same(self.obj().matrix_world,expected),'free '+axis)
+            self.capture(right=absent());yield .1
+            assert same(self.obj().matrix_world,expected)
+            self.capture(right=free(1.0));yield .1
+            assert same(self.obj().matrix_world,expected),'orientation recovery jumped'
+            yield from self.release();yield from self.undo_matrix(baseline)
+        print('PASS default FREE XYZ through real controller, original origin/nonuniform scale, freeze/recovery and native Undo',flush=True)
+
         yield from self.start()
         self.capture(right=palm(.57,.5,angle=math.radians(16)))
         yield .35
         assert self.runtime().phase=='SELECTED_READY' and same(self.obj().matrix_world,baseline)
-        assert self.module.bridge.intent.PROMPT in self.module.bridge.ui_state()[1]
+        assert 'clearer motion' in self.module.bridge.ui_state()[1]
         self.capture(right=palm(.57,.5,angle=.6));yield from self.lock('ROTATE')
         assert same(self.obj().matrix_world,baseline)
         self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'cancel ambiguous winner')
@@ -383,9 +422,9 @@ class Check(helpers.Check):
             index=max(range(len(self.obj().data.polygons)),key=lambda i:self.obj().data.polygons[i].normal.dot(vector))
             center,normal=yield from self.arm_extrusion('extrude plane '+plane.lower()+' axis '+axis.lower(),index)
             assert self.runtime().drag.plane.plane==plane and self.runtime().drag.plane.axis==axis
-            assert self.runtime().drag.geometry.amount==0,'pinch recognition deformed immediately'
+            assert self.runtime().drag.geometry is None,'direction lock deformed immediately'
             self.mapped_vector(vector*.5)
-            yield from self.until(lambda:self.runtime().drag.geometry.outward_distance>.19,'pinch cap preview')
+            yield from self.until(lambda:self.runtime().drag.geometry and self.runtime().drag.geometry.outward_distance>.19,'pinch cap preview')
             preview_counts=(len(self.obj().data.vertices),len(self.obj().data.polygons))
             cap_before_left_motion=geometry.snapshot(self.obj().data)
             self.owner_at((.1,.9));yield .1
@@ -404,7 +443,7 @@ class Check(helpers.Check):
                 yield from self.idle()
             else:
                 self.mapped_vector(vector)
-                yield from self.until(lambda:self.runtime().drag.geometry.outward_distance>.39,'last right coordinate')
+                yield from self.until(lambda:self.runtime().drag.geometry and self.runtime().drag.geometry.outward_distance>.39,'last right coordinate')
                 self.owner_at((.9,.1),'END')
                 yield from self.until(lambda:self.runtime().drag is None,'Left completion first')
                 assert self.runtime().phase=='NEEDS_RELEASE' and self.runtime().release_hands=={'Right'}
@@ -433,7 +472,7 @@ class Check(helpers.Check):
         self.capture(right=observed(palm_u=.8,palm_v=.3,open=False,pinch_pending=True));yield .3
         assert self.runtime().phase=='SELECTED_READY' and same(self.obj().matrix_world,baseline)
         self.right_pinch(event='START');yield from self.lock('EXTRUDE')
-        assert self.runtime().drag.geometry.amount==0
+        assert self.runtime().drag.geometry is None
         self.right_pinch(event='END');yield from self.until(lambda:self.runtime().drag is None,'zero distance completion')
         self.owner_at(self.start_uv,'END');yield from self.idle()
         assert geometry.snapshot(self.obj().data)==mesh_before
@@ -447,6 +486,7 @@ class Check(helpers.Check):
         for distance in (.5,.25):
             index=max(range(len(self.obj().data.polygons)),key=lambda i:self.obj().data.polygons[i].center.z)
             center,normal=yield from self.arm_extrusion(f'extend {distance} units',index)
+            yield from self.until(lambda:self.runtime().drag.geometry is not None,'fixed distance after highlight')
             assert abs(self.runtime().drag.geometry.outward_distance-distance)<1e-6
             self.right_pinch((.8,.3));yield .12
             assert abs(self.runtime().drag.geometry.outward_distance-distance)<1e-6
@@ -458,13 +498,13 @@ class Check(helpers.Check):
         yield from self.undo_mesh(snapshots[0],baseline,'repeated cap second Undo')
         index=max(range(len(self.obj().data.polygons)),key=lambda i:self.obj().data.polygons[i].center.z)
         yield from self.arm_extrusion('extrude plane xz axis z',index)
-        self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.geometry.outward_distance>.39,'valid cap')
+        self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.geometry and self.runtime().drag.geometry.outward_distance>.39,'valid cap')
         valid_mesh=geometry.snapshot(self.obj().data)
-        self.mapped_vector((0,0,-.4));yield from self.until(lambda:not self.runtime().drag.valid_preview,'inward rejected')
-        assert geometry.snapshot(self.obj().data)==valid_mesh
+        self.mapped_vector((0,0,-.4));yield from self.until(lambda:self.runtime().drag.geometry.outward_distance==0,'reverse to zero')
+        assert self.runtime().drag.valid_preview
         yield from self.release()
         assert geometry.snapshot(self.obj().data)==mesh_before
-        print('PASS fixed distance after explicit Right pinch, repeated cap/consecutive Undo, invalid inward release exact restoration',flush=True)
+        print('PASS fixed distance after explicit Right pinch, repeated cap/consecutive Undo, reverse-to-zero release exact restoration',flush=True)
 
         # Active-preview Undo cancels before undoing previous completed edit.
         self.line('move x 1 units');yield .2
@@ -475,7 +515,7 @@ class Check(helpers.Check):
         yield from self.idle()
         for reason in ('disconnect','disable'):
             yield from self.arm_extrusion('extrude plane xz axis z',index)
-            self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.geometry.outward_distance>.39,reason+' cap')
+            self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.geometry and self.runtime().drag.geometry.outward_distance>.39,reason+' cap')
             old=self.runtime();detached=self.disconnections
             if reason=='disconnect': self.module.bridge.disconnect()
             else: addon_utils.disable('air_modeler',default_set=False)

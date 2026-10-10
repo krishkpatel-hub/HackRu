@@ -103,3 +103,15 @@ def mapping(normal, view_right=(1., 0., 0.), view_up=(0., 1., 0.),
     horizontal = tuple(x * (-1 if _dot(a, right) < 0 else 1) for x in a)
     vertical = tuple(x * (-1 if _dot(b, up) < 0 else 1) for x in b)
     return Mapping(plane, axis, horizontal, vertical, sensitivity, maximum)
+
+
+def automatic(view_right, view_up, plane='AUTO', axis='NONE', sensitivity=12., maximum=4.):
+    """Resolve from viewport/override BEFORE faces; edge-on axes use virtual axes."""
+    if plane=='AUTO':
+        right,up=_unit(view_right),_unit(view_up)
+        candidates=[name for name,names in PLANES.items() if axis=='NONE' or axis in names]
+        def area(name):
+            a,b=(AXES[x] for x in PLANES[name])
+            return abs(_dot(a,right)*_dot(b,up)-_dot(a,up)*_dot(b,right))
+        plane=max(candidates,key=area)
+    return mapping((1,0,0),view_right,view_up,plane,axis,sensitivity,maximum)

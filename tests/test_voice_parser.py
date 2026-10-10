@@ -16,7 +16,7 @@ class ParserTests(unittest.TestCase):
             "create prism": {"action": "spawn", "shape": "prism"},
             "add prism": {"action": "spawn", "shape": "prism"},
             "add triangular prism": {"action": "spawn", "shape": "prism"},
-            "rotate": {"action": "set_mode", "mode": "ROTATE", "axis": "Z"},
+            "rotate": {"action": "set_mode", "mode": "ROTATE", "axis": "FREE"},
             "rotate x": {"action": "set_mode", "mode": "ROTATE", "axis": "X"},
             "rotate y": {"action": "set_mode", "mode": "ROTATE", "axis": "Y"},
             "rotate z": {"action": "set_mode", "mode": "ROTATE", "axis": "Z"},

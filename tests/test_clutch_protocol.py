@@ -15,6 +15,8 @@ def observation(**changes):
                   pinching=False, open=True, gesture_id=None, event="NONE",
                   shape_valid=True, shape_error=None, angle=0., openness=1., open_palm=True, extrude_pose=True, pinch_pending=False)
     result.update(changes)
+    result['orientation']=changes.get('orientation',[1.,0.,0.,0.] if result['shape_valid'] else None)
+    result['fingers']=changes.get('fingers',[result['openness']]*4 if result['shape_valid'] else None)
     return result
 
 
@@ -24,7 +26,7 @@ def missing(**changes):
 
 
 def frame(left=None, right=None, **changes):
-    payload = dict(profile='left_clutch_v2', frame_id=1, t=0., hands=dict(Left=left or observation(), Right=right or missing()))
+    payload = dict(profile='left_clutch_v3', aspect=4/3, frame_id=1, t=0., hands=dict(Left=left or observation(), Right=right or missing()))
     payload.update(changes)
     return dict(type="hands_frame", payload=payload)
 
@@ -79,7 +81,7 @@ def test_whole_fist_openness_is_valid_without_extrusion_pose():
     dict(openness=float('nan')), dict(shape_valid=False), dict(shape_error='bad'),
     dict(pinch_pending=True, extrude_pose=False), dict(grip=True), dict(aperture=1),
     dict(event="CANCEL", pinching=True, open=False, gesture_id=str(uuid4())),
-    dict(extra="unrecognized"),
+    dict(orientation=[0,0,0,0]), dict(orientation=[True,0,0,0]), dict(fingers=[1,1,1,.5]), dict(extra="unrecognized"),
 ])
 def test_rejects_malformed_observations(change):
     with pytest.raises(ProtocolError):
@@ -99,7 +101,7 @@ def test_invalid_observation_cannot_imply_presence_or_release(field, value):
 
 
 @pytest.mark.parametrize("change", [
-    dict(profile='either_hand_v1'), dict(profile=None), dict(frame_id=0), dict(frame_id=True), dict(frame_id=1.2), dict(frame_id=2**53),
+    dict(aspect=0), dict(aspect=True), dict(profile='left_clutch_v2'), dict(profile='either_hand_v1'), dict(profile=None), dict(frame_id=0), dict(frame_id=True), dict(frame_id=1.2), dict(frame_id=2**53),
     dict(t=True), dict(t=-.001), dict(t=float("nan")), dict(t=float("inf")),
     dict(t=10**1000), dict(hands={"Left": observation()}),
     dict(hands={"Left": observation(), "Right": missing(), "Unknown": missing()}),

@@ -92,6 +92,11 @@ class AIRMODELER_PG_precision(bpy.types.PropertyGroup):
     factor: bpy.props.FloatProperty(name='Uniform factor', default=1.5, min=.1, max=10)
     distance: bpy.props.FloatProperty(name='World units', default=2, min=-100, max=100)
     plane: EnumProperty(name='Mapping plane', items=[(p,p,'') for p in ('AUTO','XY','XZ','YZ')], default='AUTO')
+    rotation_constraint: EnumProperty(name='Gesture rotation', items=[(a,a,'') for a in ('FREE','X','Y','Z')], default='FREE')
+    diagnostics: bpy.props.BoolProperty(name='Diagnostics (2 Hz console)', default=False)
+    scale_sensitivity: bpy.props.FloatProperty(name='Scale log gain', default=1.38629436112, min=.2, max=4.)
+    rotation_sensitivity: bpy.props.FloatProperty(name='Rotation gain', default=1., min=.2, max=3.)
+    extrusion_sensitivity: bpy.props.FloatProperty(name='Extrude units / image height', default=12., min=1., max=40.)
     plane_axis: EnumProperty(name='Plane axis', items=[(a,a,'') for a in ('NONE','X','Y','Z')], default='NONE')
     move_threshold: bpy.props.FloatProperty(name='Right palm move threshold', default=.035, min=.005, max=.2)
     twist_threshold: bpy.props.FloatProperty(name='Twist threshold (degrees)', default=8, min=2, max=45)
@@ -127,7 +132,7 @@ class AIRMODELER_OT_precision_apply(bpy.types.Operator):
             if values.mode == 'EXTRUDE':
                 if bridge._runtime is None:
                     raise RuntimeError('Connect Blender before arming fixed extrusion')
-                bridge._runtime.set_mode('EXTRUDE', distance=amount, source='sidebar override')
+                bridge._runtime.set_mode('EXTRUDE', distance=amount, source='sidebar override',plane=values.plane,plane_axis=values.plane_axis)
                 bridge.redraw()
                 return {'CANCELLED'}  # Arming stages state; it must not push a geometry Undo entry.
             else:
@@ -173,7 +178,7 @@ class AIRMODELER_OT_arm_gesture(bpy.types.Operator):
         from . import bridge
         values = context.window_manager.air_modeler_precision
         try:
-            bridge._runtime.set_mode(values.mode, values.axis, source='sidebar override',
+            bridge._runtime.set_mode(values.mode, values.rotation_constraint if values.mode=='ROTATE' else values.axis, source='sidebar override',
                 plane=values.plane if values.mode == 'EXTRUDE' else 'AUTO',
                 plane_axis=values.plane_axis if values.mode == 'EXTRUDE' else 'NONE')
             bridge.redraw()

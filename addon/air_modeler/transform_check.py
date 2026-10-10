@@ -95,8 +95,9 @@ class Check(helpers.Check):
                 self.line(command)
                 self.frame(self.uv())
                 yield .12
-                yield from self.wait_for(lambda: self.runtime().mode == mode and self.runtime().axis == axis, 'mode/axis command delivery')
-                assert self.runtime().axis == axis
+                armed_axis='FREE' if command=='rotate' else axis
+                yield from self.wait_for(lambda: self.runtime().mode == mode and self.runtime().axis == armed_axis, 'mode/axis command delivery')
+                assert self.runtime().axis == armed_axis
                 start = self.uv()
                 gid = str(uuid4())
                 self.gesture('start', gid, start)

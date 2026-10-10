@@ -11,6 +11,7 @@ def main():
     source = ROOT / "addon" / "air_modeler"
     contents = {name: (source / name).read_bytes() for name in RUNTIME_FILES}
     contents["_protocol.py"] = (ROOT / "shared" / "protocol.py").read_bytes()
+    contents["spatial.py"] = (ROOT / "shared" / "spatial.py").read_bytes()
     destination = ROOT / "dist" / "air_modeler.zip"
     destination.parent.mkdir(exist_ok=True)
     with ZipFile(destination, "w", compression=ZIP_DEFLATED) as archive:

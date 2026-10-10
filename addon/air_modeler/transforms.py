@@ -110,3 +110,37 @@ def commit_precision(context, payload):
         raise RuntimeError('Precision transform commit failed')
 
     return True
+
+
+def validate_rigid_scale(obj):
+    """Rotation can preserve signed TRS, but cannot represent shear/parent coupling."""
+    if obj.parent or obj.constraints or obj.animation_data:
+        raise ValueError('Free rotation rejects parents, constraints and animation')
+    matrix=obj.matrix_world.to_3x3()
+    cols=[matrix.col[i] for i in range(3)]
+    if any(c.length<1e-8 for c in cols) or any(not math.isfinite(v) for c in cols for v in c):
+        raise ValueError('Singular/nonfinite transform')
+    if any(abs(cols[i].normalized().dot(cols[j].normalized()))>1e-5 for i,j in ((0,1),(0,2),(1,2))):
+        raise ValueError('Sheared transforms are unsupported')
+
+
+def hand_rotation(current, reference, view, axis='FREE', sensitivity=1., deadband=0.):
+    """World delta = V (Qcurrent Qref^-1) V^-1; swing/twist constrains world axis."""
+    from mathutils import Quaternion, Vector
+    q=Quaternion(current)@Quaternion(reference).conjugated()
+    if q.w<0: q.negate()
+    q=view@q@view.conjugated()
+    if axis!='FREE':
+        a=Vector(tuple(1. if c==axis else 0. for c in 'XYZ'))
+        projection=Vector((q.x,q.y,q.z)).dot(a)
+        twist=Quaternion((q.w,*(a*projection)))
+        if twist.magnitude<1e-8:return Quaternion()
+        q=twist.normalized()
+    if q.w<0:q.negate()
+    a,angle=q.to_axis_angle()
+    # Continuous radial gain on SO(3): map deadband to identity and pi to pi.
+    # Multiplying a shortest angle by gain would jump at 180 degrees.
+    if angle<=deadband:return Quaternion()
+    normalized=(angle-deadband)*math.pi/(math.pi-deadband)
+    adjusted=math.pi if normalized>=math.pi-1e-7 else 2*math.atan(sensitivity*math.tan(normalized/2))
+    return Quaternion(a,adjusted)

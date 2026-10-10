@@ -62,8 +62,8 @@ def detect_landmarks(landmarker, mirrored_bgr, timestamp_ms: int):
 def detect_hands(landmarker, mirrored_bgr, timestamp_ms):
     rgb = cv2.cvtColor(mirrored_bgr, cv2.COLOR_BGR2RGB)
     result = landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), timestamp_ms)
-    return [(labels[0].category_name, labels[0].score, [(p.x,p.y) for p in points])
-            for points, labels in zip(result.hand_landmarks, result.handedness) if labels]
+    return [(labels[0].category_name, labels[0].score, [(p.x,p.y) for p in points], [(p.x,p.y,p.z) for p in world])
+            for points, labels, world in zip(result.hand_landmarks, result.handedness, result.hand_world_landmarks) if labels]
 
 
 def run_hand_tracker(
@@ -88,11 +88,16 @@ def run_hand_tracker(
     engine = HandEngine(cfg)
     from .observations import TwoHandObservations
     observations = TwoHandObservations(cfg) if cfg.two_hands else None
+    recorder = None
     try:
+        if cfg.record_landmarks:
+            from .recording import Recorder
+            recorder=Recorder(cfg.record_landmarks,cfg.record_seconds,cfg)
         cap = _open_camera(cfg)
         t0 = time.monotonic()
         last_ts_ms = -1
         fps, fps_t = 0.0, t0
+        capture_aspect=cfg.width/cfg.height
         fail_since: Optional[float] = None
         while not stop_event.is_set():
             ok, frame = cap.read()
@@ -102,7 +107,9 @@ def run_hand_tracker(
                 if now - fail_since > cfg.camera_fail_timeout_s:
                     raise RuntimeError("camera stopped delivering frames")
                 if observations is not None:
-                    emit(observations.update(now - t0, []))
+                    event=observations.update(now-t0,[],aspect=capture_aspect)
+                    if recorder:recorder.write(now-t0,[],capture_aspect,event)
+                    emit(event)
                 else:
                     for ev in engine.update(now - t0, None):  # keep loss/cancel timing alive
                         emit(ev)
@@ -114,8 +121,12 @@ def run_hand_tracker(
             ts_ms = max(int((now - t0) * 1000), last_ts_ms + 1)
             last_ts_ms = ts_ms
             h, w = frame.shape[:2]
+            capture_aspect=w/h
             if observations is not None:
-                emit(observations.update(now-t0, detect_hands(landmarker, frame, ts_ms), aspect=w/h))
+                detections=detect_hands(landmarker, frame, ts_ms)
+                event=observations.update(now-t0,detections,aspect=w/h)
+                if recorder:recorder.write(now-t0,detections,w/h,event)
+                emit(event)
                 # Standalone preview is diagnostic only; the worker never opens a GUI.
                 identity = 'Left' if 'Left' in observations.landmarks else 'Right'
                 landmarks = observations.landmarks.get(identity)
@@ -145,6 +156,7 @@ def run_hand_tracker(
             if cap is not None:
                 cap.release()
             landmarker.close()
+            if recorder:recorder.close()
             if show_preview:
                 cv2.destroyAllWindows()
                 cv2.waitKey(1)

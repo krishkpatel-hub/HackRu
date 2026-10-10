@@ -91,7 +91,7 @@ def validate_mode(payload):
         require("plane" not in payload, "Only EXTRUDE accepts a plane")
         require("axis" not in payload or mode == "ROTATE", "Only ROTATE/EXTRUDE accept an axis")
         if "axis" in payload:
-            require(payload["axis"] in ("X", "Y", "Z"), "Invalid rotation axis")
+            require(payload["axis"] in ("FREE", "X", "Y", "Z"), "Invalid rotation axis")
 
 
 def finite_number(value):
@@ -108,7 +108,7 @@ def validate_hand_observation(observation):
     keys(observation, ("valid", "confidence", "u", "v", "palm_u", "palm_v",
                        "pinching", "open", "gesture_id", "event", "shape_valid",
                        "shape_error", "angle", "openness", "open_palm",
-                       "extrude_pose", "pinch_pending"))
+                       "extrude_pose", "pinch_pending", "orientation", "fingers"))
     flags = ("valid", "pinching", "open", "shape_valid", "open_palm", "extrude_pose", "pinch_pending")
     for flag in flags:
         require(type(observation[flag]) is bool, "Hand observation flags must be booleans")
@@ -138,6 +138,17 @@ def validate_hand_observation(observation):
         require(bool(observation['shape_error']), "Invalid shape needs readable feedback")
     require(not observation['pinch_pending'] or observation['extrude_pose'],
             "Extrusion pinch approach requires remaining open fingers")
+    for field, size in (('orientation',4),('fingers',4)):
+        value=observation[field]
+        if observation['shape_valid']:
+            require(isinstance(value,list) and len(value)==size and all(finite_number(x) for x in value), 'Invalid 3D measurement')
+            if field=='orientation':
+                require(abs(sum(x*x for x in value)-1)<1e-4, 'Orientation must be unit quaternion')
+            else:
+                require(all(0<=x<=1 for x in value), 'Finger openness outside bounds')
+                require(abs(sum(value)/4-observation['openness'])<1e-5, 'Incoherent aggregate openness')
+        else:
+            require(value is None, 'Invalid 3D measurements must be null')
     event, identifier = observation["event"], observation["gesture_id"]
     require(event in ("NONE", "START", "END", "CANCEL"), "Invalid hand boundary event")
     if event != "NONE" or observation["pinching"]:
@@ -176,8 +187,9 @@ def validate_event(event):
             keys(payload, ("id", "action"))
         uuid(payload["id"])
     elif kind == "hands_frame":
-        keys(payload, ("profile", "frame_id", "t", "hands"))
-        require(payload["profile"] == "left_clutch_v2", "Unsupported hand controls; install matching 0.8 companion/add-on")
+        keys(payload, ("profile", "frame_id", "t", "aspect", "hands"))
+        require(finite_number(payload["aspect"]) and .1 <= payload["aspect"] <= 10, "Invalid capture aspect")
+        require(payload["profile"] == "left_clutch_v3", "Unsupported hand controls; install matching 0.9 companion/add-on")
         require(type(payload["frame_id"]) is int and 1 <= payload["frame_id"] <= 2**53 - 1,
                 "Invalid capture frame ID")
         require(finite_number(payload["t"]) and payload["t"] >= 0, "Invalid capture elapsed time")

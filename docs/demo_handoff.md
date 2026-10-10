@@ -1,3 +1,5 @@
+> Current **0.9.0** stabilization: [handoff](clutch_handoff.md) and [physical checklist](physical_acceptance.md). Material below records earlier versions; 0.9 physical checks are NOT RUN.
+
 > Current 0.8.0 Left-clutch/Right-whole-hand controls: [current handoff](clutch_handoff.md). Material below is historical.
 
 > Historical 0.7.0 controls and verification: [0.7 clutch handoff](clutch_handoff_0.7.md). The material below is historical and does not establish a combined 0.7.0 live pass.

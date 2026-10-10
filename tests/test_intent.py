@@ -13,7 +13,10 @@ def right(angle=0., openness=1., palm=(.5,.5), **fields):
     value=dict(valid=True,shape_valid=True,shape_error=None,angle=angle,openness=openness,
         u=.5,v=.5,palm_u=palm[0],palm_v=palm[1],open=True,pinching=False,event='NONE',gesture_id=None,
         open_palm=openness>=.72,extrude_pose=openness>=.72,pinch_pending=False)
-    value.update(fields);return value
+    value.update(fields)
+    value['orientation']=fields.get('orientation',[math.cos(angle/2),0.,0.,math.sin(angle/2)])
+    value['fingers']=fields.get('fingers',[openness]*4)
+    return value
 
 
 def state(obs=None):
@@ -49,7 +52,7 @@ def test_ambiguous_motion_requires_dominance_even_with_persistence():
     value=state()
     obs=right(angle=math.radians(16),palm=(.57,.5))
     for t in (.1,.3,.6): assert value.update(t,obs) is None
-    assert value.feedback==intent.PROMPT
+    assert 'clearer motion' in value.feedback
     assert value.update(.7,right(angle=.6,palm=(.57,.5))) is None
     assert value.update(.86,right(angle=.6,palm=(.57,.5)))=='ROTATE'
 
@@ -66,7 +69,7 @@ def test_candidate_hysteresis_keeps_noise_but_requires_activation_threshold():
 
 def pinch(**changes):
     return right(openness=.8,open=False,open_palm=False,pinching=True,
-        event='START',gesture_id=str(uuid4()),pinch_pending=True,**changes)
+        event='START',gesture_id=str(uuid4()),pinch_pending=True,fingers=[.2,1.,1.,1.],**changes)
 
 
 def test_isolated_pinch_approach_blocks_incidental_move_before_start():

@@ -153,7 +153,9 @@ class Client:
         return next((obj for obj in bpy.data.objects if obj.session_uid == self.drag.target_id), None)
 
     def mode_label(self):
-        label = f"ROTATE world {self.axis}" if self.mode == "ROTATE" else self.mode
+        axis=self.drag.axis if self.drag and self.drag.mode=="ROTATE" else self.axis
+        if not self.clutch and axis=="FREE":axis="Z"
+        label = ("ROTATE free" if axis=="FREE" else f"ROTATE world {axis}") if self.mode == "ROTATE" else self.mode
         if self.drag and self.drag.mode == "ROTATE":
             label += f" {math.degrees(self.drag.amount):+.1f}°"
         elif self.drag and self.drag.mode == "SCALE":
@@ -162,7 +164,7 @@ class Client:
             label += f" {self.drag.amount:.3f} units"
         if self.fixed_distance is not None and self.drag is None:
             label += f" fixed {self.fixed_distance:.3f} units"
-        if self.clutch and self.drag and self.drag.mode == 'EXTRUDE':
+        if self.clutch and self.drag and self.drag.mode == 'EXTRUDE' and self.drag.geometry:
             vector = self.drag.geometry.world_vector
             mapping = self.drag.plane
             label += f" {mapping.plane}/{mapping.axis} ({vector.x:+.2f},{vector.y:+.2f},{vector.z:+.2f})"
@@ -331,7 +333,7 @@ class Client:
             context["view_layer"].objects.active = obj
             self.drag = SimpleNamespace(identifier=identifier, target_id=obj.session_uid,
                                         baseline=obj.matrix_world.copy(), scale_signs=tuple(obj.scale), view=view,
-                                        mode=self.mode, axis=self.axis, start=uv, fixed_distance=self.fixed_distance,
+                                        mode=self.mode, axis="Z" if self.axis=="FREE" else self.axis, start=uv, fixed_distance=self.fixed_distance,
                                         geometry=None, config=transforms.CONFIG, amount=1.0 if self.mode == "SCALE" else 0.0,
                                         point=point, normal=normal, grab=grab,
                                         max_delta=max(100, (point - viewport.ray(view, uv)[0]).length * 10))
@@ -402,7 +404,8 @@ class Client:
                        twist_threshold=math.radians(values.twist_threshold),
                        openness_threshold=values.openness_threshold,
                        persistence=values.intent_persistence,
-                       dominance=values.intent_dominance, hysteresis=values.intent_hysteresis)
+                       dominance=values.intent_dominance, hysteresis=values.intent_hysteresis, scale_sensitivity=values.scale_sensitivity,
+                       rotation_sensitivity=values.rotation_sensitivity, extrusion_sensitivity=values.extrusion_sensitivity)
 
     def select_hand(self, owner, observation, right, now):
         """Only Left's corrected START selects. Its later coordinates are inert."""
@@ -422,9 +425,7 @@ class Client:
             self.cancel_drag(preserve_mode=True)
             raise RuntimeError('Unsupported target' if rejected else 'Pinch missed; release Left before retrying')
         obj, point = hit
-        face_hit, face_error = viewport.pick_extrusion(context, view, uv)
-        if face_hit and face_hit[0] != obj:
-            face_hit = None
+        # Selection is object-only. Direction later chooses among ALL eligible faces.
         normal = view[1].view_matrix.inverted().col[2].xyz.normalized()
         for selected in context['view_layer'].objects:
             if selected.select_get():
@@ -434,15 +435,15 @@ class Client:
         cfg = self.selection_config()
         self.drag = SimpleNamespace(identifier=observation['gesture_id'], owner='Left',
             target_id=obj.session_uid, baseline=obj.matrix_world.copy(), scale_signs=tuple(obj.scale),
-            source_mesh=obj.data, view=view, mode=None, axis=self.axis, start=uv, fixed_distance=self.fixed_distance,
+            source_mesh=obj.data, view=view, mode=None, axis=self.axis if self.override else "FREE", start=uv, fixed_distance=self.fixed_distance,
             geometry=None, config=transforms.CONFIG, amount=0., point=point, normal=normal, grab=None,
             max_delta=max(100, (point-viewport.ray(view,uv)[0]).length*10),
-            face_index=face_hit[2] if face_hit else None, face_error=face_error,
+            face_index=None, face_error=None,
             intent=intent.Intent(cfg), intent_config=cfg, required={'Left','Right'}, lost_since=None,
-            valid_preview=True, plane=None, right_id=None, last_right=None,
+            valid_preview=True, aspect=self.capture_aspect, plane=None, right_id=None, last_right=None,
             plane_name=self.plane, plane_axis=self.plane_axis, override=self.mode if self.override else None)
-        self.face_outline = face_hit[3] if face_hit else ()
-        self.target_message = f'{obj.name}; locked face {face_hit[2]}' if face_hit else f'{obj.name}; extrusion unavailable: {face_error or "no eligible face"}'
+        self.face_outline = ()
+        self.target_message = f'{obj.name}; selected object; Right chooses operation'
         self.hovered = obj.name
         self.phase = 'SELECTED_READY'
         self.drag.intent.update(now,right,override=self.drag.override)
@@ -460,32 +461,28 @@ class Client:
             if drag.grab is None:
                 raise RuntimeError('Cannot map Right palm in this view')
         elif mode in ('ROTATE','SCALE'):
-            drag.last_angle = right['angle']
-            drag.total_angle = 0.
+            transforms.validate_rigid_scale(obj)
+            from mathutils import Quaternion
+            drag.orientation_reference = right['orientation']
+            drag.rotation_offset = Quaternion()
+            drag.rotation_delta = Quaternion()
+            drag.view_rotation = drag.view[1].view_matrix.inverted().to_quaternion()
             drag.reference_openness = right['openness']
             drag.amount = 1. if mode == 'SCALE' else 0.
         else:
-            if drag.face_index is None:
-                raise RuntimeError(drag.face_error or 'Left selection captured no eligible extrusion face')
             drag.right_id = drag.intent.pinch_id
             drag.pinch_start = drag.intent.pinch_start
             if drag.right_id is None:
                 raise RuntimeError('Extrusion requires a fresh isolated Right pinch')
-            drag.geometry = extrusion.Preview(obj,drag.face_index,extrusion.CONFIG)
+            drag.face_candidates = extrusion.candidates(obj)
             view_rotation = drag.view[1].view_matrix.inverted()
-            drag.plane = planes.mapping(drag.geometry.world_normal,
-                view_rotation.col[0].xyz,view_rotation.col[1].xyz,drag.plane_name,drag.plane_axis)
-            def label(vector):
-                return next(('+' if x > 0 else '-')+'XYZ'[i] for i,x in enumerate(vector) if x)
-            self.target_message = f'{obj.name}; locked face {drag.face_index}; screen right {label(drag.plane.horizontal)}, screen up {label(drag.plane.vertical)}'
-            # Corrected cursor already preserves pre-close aim/palm-relative motion.
-            # Rebase at activation to avoid a recognition-threshold jump.
-            drag.pinch_reference = right['u'],right['v']
+            drag.plane = planes.automatic(view_rotation.col[0].xyz,view_rotation.col[1].xyz,
+                drag.plane_name,drag.plane_axis,drag.intent_config.extrusion_sensitivity)
+            drag.pinch_reference = drag.pinch_start
             drag.pinch_delta = (0.,0.)
-            if drag.fixed_distance is not None:
-                drag.geometry.update(drag.fixed_distance)
-                drag.amount = drag.fixed_distance
-            self.face_outline = drag.geometry.outline()
+            drag.direction_candidate = None
+            drag.direction_since = None
+            self.target_message = f'{obj.name}; direction pending; {drag.plane.plane}/{drag.plane.axis} virtual mapping; right {drag.plane.horizontal}; up {drag.plane.vertical}'
         drag.last_right = dict(right)
         self.phase = 'DRAGGING'
         _last_error = None
@@ -507,18 +504,21 @@ class Client:
             return
         if recovered:
             if drag.mode == 'ROTATE':
-                drag.last_angle = right['angle']
+                drag.orientation_reference = right['orientation']
+                drag.rotation_offset = drag.rotation_delta.copy()
             elif drag.mode == 'SCALE':
                 drag.reference_openness = right['openness']-math.log(drag.amount)/drag.intent_config.scale_sensitivity
             else:
                 drag.pinch_reference = right['u']-drag.pinch_delta[0],right['v']-drag.pinch_delta[1]
+                if drag.face_index is None:
+                    drag.direction_candidate=None
         obj = self.target()
         if drag.mode == 'ROTATE':
-            from mathutils import Matrix
-            drag.total_angle += intent.angle_delta(right['angle'],drag.last_angle)
-            drag.last_angle = right['angle']
-            drag.amount = drag.total_angle*drag.intent_config.rotation_sensitivity
-            final = Matrix.Rotation(drag.amount,4,drag.axis)@drag.baseline
+            drag.rotation_delta = transforms.hand_rotation(right['orientation'],drag.orientation_reference,
+                drag.view_rotation,drag.axis,drag.intent_config.rotation_sensitivity,
+                drag.intent_config.rotation_deadband) @ drag.rotation_offset
+            drag.amount = drag.rotation_delta.angle
+            final = drag.rotation_delta.to_matrix().to_4x4()@drag.baseline
             final.translation = drag.baseline.translation
             transforms.apply_matrix(obj,final,drag.scale_signs)
         elif drag.mode == 'SCALE':
@@ -528,16 +528,44 @@ class Client:
             final = Matrix.Scale(drag.amount,4)@drag.baseline
             final.translation = drag.baseline.translation
             transforms.apply_matrix(obj,final,drag.scale_signs)
-        elif drag.fixed_distance is None:
+        elif drag.mode == 'EXTRUDE':
+            from mathutils import Vector
             delta = right['u']-drag.pinch_reference[0],right['v']-drag.pinch_reference[1]
-            try:
-                drag.geometry.update_vector(drag.plane.displacement(*delta))
-            except ValueError as exc:
-                drag.valid_preview = False
-                self.error(exc)
+            vector = drag.plane.displacement(delta[0]*drag.aspect,delta[1])
+            if drag.face_index is None:
+                # Small direction threshold is independent of extrusion gain.
+                if math.hypot(delta[0]*drag.aspect,delta[1]) < .018:
+                    self.target_message = 'Pinch held: drag a little to choose extrusion direction'
+                    return
+                choice=extrusion.choose_face(drag.face_candidates,vector)
+                if choice is None:
+                    drag.direction_candidate=None
+                    self.target_message='Drag more clearly toward one direction'
+                    return
+                index,normal,outline,scores=choice
+                drag.face_scores=scores
+                if drag.direction_candidate!=index:
+                    drag.direction_candidate=index;drag.direction_since=self.frame_time
+                    return
+                if self.frame_time-drag.direction_since<.10:return
+                drag.face_index=index;drag.locked_normal=normal
+                drag.face_locked_at=self.frame_time
+                drag.pinch_reference=right['u'],right['v']
+                drag.pinch_delta=(0.,0.)
+                self.face_outline=outline
+                self.target_message=(f'Face {index}; normal ({normal.x:+.2f},{normal.y:+.2f},{normal.z:+.2f}); '
+                    f'{drag.plane.plane}/{drag.plane.axis} virtual mapping; right {drag.plane.horizontal}; up {drag.plane.vertical}; outline includes hidden face')
                 return
-            drag.pinch_delta = delta
-            drag.amount = drag.geometry.amount
+            if self.frame_time-drag.face_locked_at<.12:return
+            # Face is locked. Reverse travel returns toward zero, never switches
+            # face or produces unsupported inward geometry. Extrude normal-only.
+            amount=drag.fixed_distance if drag.fixed_distance is not None else max(0.,Vector(vector).dot(drag.locked_normal))
+            if drag.geometry is None and amount>extrusion.CONFIG.negligible_distance:
+                drag.geometry=extrusion.Preview(obj,drag.face_index,extrusion.CONFIG)
+            if drag.geometry:
+                drag.geometry.update(amount)
+            drag.pinch_delta=delta
+            drag.amount=amount
         drag.valid_preview = True
         drag.last_right = dict(right)
         self.face_outline = drag.geometry.outline() if drag.geometry else self.face_outline
@@ -553,7 +581,7 @@ class Client:
             self.cancel_drag()
             raise RuntimeError('Invalid displacement on release; baseline restored')
         name, arguments, changed = obj.name,None,False
-        if operation == 'EXTRUDE':
+        if operation == 'EXTRUDE' and drag.geometry is not None:
             geometry = drag.geometry
             changed = geometry.outward_distance > geometry.config.negligible_distance
             if changed:
@@ -563,7 +591,7 @@ class Client:
                     maximum_distance=geometry.config.maximum_distance,
                     negligible_distance=geometry.config.negligible_distance)
             geometry.restore(obj)
-        elif operation:
+        elif operation and operation != 'EXTRUDE':
             final = obj.matrix_world.copy()
             changed = transforms.changed(drag.baseline,final,drag.config.matrix_tolerance)
             transforms.apply_matrix(obj,drag.baseline,drag.scale_signs)
@@ -604,6 +632,7 @@ class Client:
             self.source = 'Left clutch / Right whole hand'
         self.last_input = now
         hands = payload['hands']
+        self.capture_aspect = payload['aspect']
         left,right = hands['Left'],hands['Right']
         def recognition(obs):
             if not obs['valid']: return 'absent/uncertain'
@@ -652,7 +681,7 @@ class Client:
             _message = 'Left clutch cancelled; release both hands to rearm'
             return
         valid = owner_valid and (left['pinching'] or left_end) and right['valid'] and right['shape_valid']
-        if drag.mode in ('MOVE','ROTATE'):
+        if drag.mode == 'MOVE':
             valid = valid and right['open_palm'] and not right['pinch_pending']
         elif drag.mode == 'EXTRUDE':
             valid = valid and right_match and (right['pinching'] or right_end) and right['extrude_pose']
@@ -695,6 +724,25 @@ class Client:
         if completing:
             self.finish_hand(hands)
 
+    def diagnostics(self, payload):
+        if not bpy.context.window_manager.air_modeler_precision.diagnostics:return
+        now=time.monotonic()
+        if now-getattr(self,'diagnostic_at',0)<.5:return
+        self.diagnostic_at=now
+        d=self.drag;r=payload['hands']['Right'];l=payload['hands']['Left']
+        import json
+        print('AIR_DIAG '+json.dumps(dict(version='0.9.0',phase=self.phase,
+            age=round(now-(self.frame_origin+payload['t']),3),
+            identities={h:(v['valid'],v['confidence']) for h,v in payload['hands'].items()},
+            clutch=l['pinching'],fingers=r['fingers'],openness=r['openness'],
+            isolated_pinch=r['pinch_pending'],orientation_valid=r['shape_valid'],
+            orientation=r['orientation'],angle=d.intent.twist if d else None,
+            scores=d.intent.scores if d else {},candidate=d.intent.candidate if d else None,
+            candidate_age=payload['t']-d.intent.since if d and d.intent.since is not None else None,
+            reason=_last_error or _message,target_feedback=self.target_message,amount=d.amount if d else None,
+            mapping=d.plane.plane if d and d.plane else None,
+            faces=getattr(d,'face_scores',None),face=d.face_index if d else None),allow_nan=False),flush=True)
+
     def handle(self, event):
         global _message, _last_error
         kind, payload = event["type"], event["payload"]
@@ -702,6 +750,7 @@ class Client:
         try:
             if kind == 'hands_frame':
                 self.hands_frame(payload)
+                self.diagnostics(payload)
                 return
             if self.clutch and kind != 'command':
                 return  # Never mix legacy and coherent cursors in one connection.
@@ -733,8 +782,8 @@ class Client:
                         raise RuntimeError('Open/release the hand before a precision edit')
                     protocol.validate_precision(payload)
                     if payload['mode'] == 'EXTRUDE':
-                        self.set_mode('EXTRUDE', distance=payload['value'])
-                        _message = ('Fixed extrusion armed: Left selects face, then Right pinches'
+                        self.set_mode('EXTRUDE', distance=payload['value'],plane=self.plane,plane_axis=self.plane_axis)
+                        _message = ('Fixed extrusion armed: select object, pinch and drag to choose face'
                                     if self.clutch else 'Fixed extrusion armed: select an eligible face')
                     else:
                         transforms.commit_precision(bpy.context, payload)
@@ -752,7 +801,7 @@ class Client:
                     self.hovered = None
                     _message = "Undo completed"
                 else:
-                    self.set_mode(payload["mode"], payload.get("axis", "Z"),
+                    self.set_mode(payload["mode"], payload.get("axis", "FREE" if payload["mode"]=="ROTATE" else "Z"),
                                   plane=payload.get('plane','AUTO'),
                                   plane_axis=payload.get('axis','NONE') if payload['mode']=='EXTRUDE' else 'NONE')
                     _message = f"{self.mode_label()} armed"

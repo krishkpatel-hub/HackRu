@@ -1,3 +1,5 @@
+> Current **0.9.0** stabilization: [handoff](clutch_handoff.md) and [physical checklist](physical_acceptance.md). Material below records earlier versions; 0.9 physical checks are NOT RUN.
+
 # Current hands integration: 0.8.0 whole-hand observations
 
 The current `--two-hands` contract is [Left selection only / Right manipulation](clutch_handoff.md). Left corrected thumb/index START selects; Right palm translation, whole-hand twist/openness and isolated thumb/index pinch supply independent measurements. Tracking never chooses a Blender tool or target. The old three-finger `grip`/`aperture` fields are removed. Explicit `--legacy-hands` retains one detected hand and legacy events; camera commands without either flag fail instead of silently falling back.

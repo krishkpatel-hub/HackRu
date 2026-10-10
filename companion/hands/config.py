@@ -37,6 +37,9 @@ class HandConfig:
     finger_open_enter: float = .72
     finger_open_exit: float = .60
 
+    record_landmarks: Optional[str] = None
+    record_seconds: float = 20.
+
     # Output
     emit_hz: float = 30.0
 
@@ -77,6 +80,10 @@ class HandConfig:
         return cfg
 
     def validate(self) -> None:
+        if not 1 <= self.record_seconds <= 60:
+            raise ValueError('Recording length must be 1–60 seconds')
+        if self.record_landmarks and not self.two_hands:
+            raise ValueError('Landmark recording requires two_hands')
         if type(self.two_hands) is not bool or self.manipulator_hand not in {"Left", "Right"}:
             raise ValueError("two_hands must be bool; manipulator_hand must be Left or Right")
         if self.two_hands and self.manipulator_hand != 'Right':

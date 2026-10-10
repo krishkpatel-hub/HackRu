@@ -9,6 +9,8 @@ import math
 
 from .engine import HandEngine
 from .roles import center
+from .articulation import measure, invalid
+from shared import spatial
 
 IDENTITIES = ("Left", "Right")
 
@@ -103,7 +105,9 @@ class HandIdentities:
 
 
 def manipulation_features(points, aspect=1.0, previous=None, config=None):
-    """Whole-finger flexion and palm twist, invariant to image-plane scale/rotation.
+    """Historical 0.8 measurement fixture helper; NOT used by live observations.
+
+    Whole-finger flexion and palm twist, invariant to image-plane scale/rotation.
 
     Each of index/middle/ring/pinky contributes PIP/DIP flexion and tip reach
     normalized by palm size. This is not the old three-tip aperture. A fist is
@@ -163,7 +167,7 @@ def absent_observation(event='NONE', gesture_id=None):
                 pinching=False, open=False, gesture_id=gesture_id, event=event,
                 shape_valid=False, shape_error='Hand absent or identity uncertain',
                 angle=None, openness=None, open_palm=False,
-                extrude_pose=False, pinch_pending=False)
+                extrude_pose=False, pinch_pending=False, orientation=None, fingers=None)
 
 
 class TwoHandObservations:
@@ -175,14 +179,15 @@ class TwoHandObservations:
         self.engines = {identity: HandEngine(config) for identity in IDENTITIES}
         self.open_since = {identity: None for identity in IDENTITIES}
         self.shapes = {identity: {} for identity in IDENTITIES}
+        self.measurements = {}
         self.frame_id = 0
         self.last_t = 0.0
         self.landmarks = {}
 
-    def _frame(self, t, hands):
+    def _frame(self, t, hands, aspect=4/3):
         self.frame_id += 1
         self.last_t = t
-        return dict(type='hands_frame', payload=dict(profile='left_clutch_v2', frame_id=self.frame_id, t=t, hands=hands))
+        return dict(type='hands_frame', payload=dict(profile='left_clutch_v3', frame_id=self.frame_id, t=t, aspect=aspect, hands=hands))
 
     def update(self, t, detections, aspect=4/3):
         protected = {identity: engine.pinching for identity, engine in self.engines.items()}
@@ -191,7 +196,11 @@ class TwoHandObservations:
         # require it, so an uncertain right hand cannot relocate and recover as
         # another path before Blender's required-hand timeout expires.
         protected['Right'] = protected['Right'] or protected['Left']
-        accepted = self.identities.update(detections, t, protected)
+        # Preserve the existing 2D cursor/identity input, associate metric landmarks
+        # by the same unique label (never by array order after acceptance).
+        planar=[tuple(d[:3]) for d in detections]
+        worlds={d[0]: d[3] for d in detections if len(d)==4}
+        accepted = self.identities.update(planar, t, protected)
         self.landmarks = {identity: value[1] for identity,value in accepted.items()}
         hands = {}
         for identity, engine in self.engines.items():
@@ -217,13 +226,19 @@ class TwoHandObservations:
                              and t-since >= self.cfg.pinch_stable_ms/1000)
             uv = (transition['payload']['u'],transition['payload']['v']) if event == 'END' else engine.cursor
             palm = engine._smooth_palm
-            features = manipulation_features(points,aspect,self.shapes[identity],self.cfg)
+            features = measure(worlds.get(identity),self.shapes[identity],self.cfg)
+            last=self.measurements.get(identity)
+            if features['shape_valid'] and last and 0 < t-last[0] <= .5:
+                if spatial.distance(features['orientation'],last[1]) > min(math.radians(55), math.radians(12+900*(t-last[0]))):
+                    features=invalid('Implausible palm orientation jump; hold steady')
+            if features['shape_valid']:
+                self.measurements[identity]=(t,features['orientation'])
             self.shapes[identity] = features
             hands[identity] = dict(valid=True, confidence=float(score), u=uv[0], v=uv[1],
                 palm_u=max(0.,min(1.,palm[0])), palm_v=max(0.,min(1.,palm[1])),
                 pinching=engine.pinching, open=bool(observed_open or event == 'END'),
                 gesture_id=gid, event=event, **features)
-        return self._frame(t, hands)
+        return self._frame(t, hands, aspect)
 
     def shutdown(self):
         hands = {}

@@ -209,7 +209,8 @@ def test_folded_ring_and_pinky_change_measurement_without_moving_three_old_tips(
 def test_visible_fist_keeps_valid_identity_and_whole_measurements():
     s=Sequence()
     def right(closed):
-        return 'Right',.99,[(x+.22,y) for x,y in skeletal_hand(closed,pinch=bool(closed))]
+        points=skeletal_hand(closed,pinch=bool(closed))
+        return 'Right',.99,[(x+.22,y) for x,y in points],[(x,y,0.) for x,y in points]
     s.frames(25,[detection('Left'),right(0)])
     s.frames(10,[detection('Left',ratio=.15),right(0)])
     left_id=s.hand('Left')['gesture_id']
@@ -222,7 +223,7 @@ def test_visible_fist_keeps_valid_identity_and_whole_measurements():
 def test_left_clutch_protects_right_identity_from_relocation():
     s=Sequence()
     def right(shift):
-        return 'Right',.99,[(x+shift,y) for x,y in skeletal_hand()]
+        return 'Right',.99,[(x+shift,y) for x,y in skeletal_hand()],[(x,y,0.) for x,y in skeletal_hand()]
     s.frames(25,[detection('Left'),right(.22)])
     s.frames(10,[detection('Left',ratio=.15),right(.22)])
     assert s.hand('Right')['open_palm'] and not s.hand('Right')['pinching']

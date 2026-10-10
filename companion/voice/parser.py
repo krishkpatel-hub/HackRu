@@ -54,7 +54,7 @@ def parse_command(text: str) -> dict | None:
         if shape in {"cube", "sphere", "cylinder", "prism"}:
             return {"action": "spawn", "shape": shape}
     if words == ["rotate"]:
-        return {"action": "set_mode", "mode": "ROTATE", "axis": "Z"}
+        return {"action": "set_mode", "mode": "ROTATE", "axis": "FREE"}
     if len(words) == 2 and words[0] == "rotate" and words[1] in {"x", "y", "z"}:
         return {"action": "set_mode", "mode": "ROTATE", "axis": words[1].upper()}
     if len(words) == 1:

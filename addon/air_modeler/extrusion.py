@@ -35,10 +35,12 @@ def validate_object(obj):
         raise ValueError("EXTRUDE requires finite mesh coordinates")
     if mesh.shape_keys or mesh.animation_data or mesh.has_custom_normals:
         raise ValueError('EXTRUDE does not support shape keys, animated meshes or custom normals')
-    if obj.matrix_world.to_3x3().determinant() <= 1e-10:
-        raise ValueError('EXTRUDE rejects singular or reflected transforms')
+    if abs(obj.matrix_world.to_3x3().determinant()) <= 1e-10:
+        raise ValueError('EXTRUDE rejects singular transforms')
     if not all(math.isfinite(x) for row in obj.matrix_world for x in row):
         raise ValueError('EXTRUDE requires a finite transform')
+    from .transforms import validate_rigid_scale
+    validate_rigid_scale(obj)
     supported = {'FLOAT', 'INT', 'FLOAT_VECTOR', 'FLOAT_COLOR', 'BYTE_COLOR', 'BOOLEAN', 'FLOAT2'}
     if any(not a.is_internal and a.data_type not in supported for a in mesh.attributes):
         raise ValueError('EXTRUDE found an unsupported mesh attribute type')
@@ -278,3 +280,37 @@ def commit_vector(obj, face_index, world_vector, config=CONFIG):
         preview.restore(obj)
         raise
     return True
+
+
+def candidates(obj):
+    """Eligible baseline faces including hidden ones, without a raycast/mutation."""
+    validate_object(obj)
+    linear=obj.matrix_world.to_3x3()
+    normal_matrix=linear.inverted().transposed()
+    result=[]
+    for polygon in obj.data.polygons:
+        try:
+            normal,vertices=face_info(obj,polygon.index)
+        except ValueError:
+            continue
+        outline=tuple(obj.matrix_world@v for v in vertices)
+        normal=(normal_matrix@normal).normalized()
+        center=sum(outline,Vector())/len(outline)
+        result.append((polygon.index,normal,center,outline))
+    if not result: raise ValueError('No eligible outer supporting triangular/quad face')
+    return result
+
+
+def choose_face(faces, direction, margin=.12):
+    """Best positive normal; distinct directions need margin, parallel outermost wins."""
+    direction=Vector(direction).normalized()
+    ranked=sorted(((normal.dot(direction),index,normal,center,outline)
+                   for index,normal,center,outline in faces),key=lambda x:(-x[0],x[1]))
+    best=ranked[0]
+    if best[0]<.55: return None
+    distinct=[item for item in ranked[1:] if item[2].dot(best[2])<.999]
+    if distinct and best[0]-distinct[0][0]<margin: return None
+    parallel=[item for item in ranked if item[2].dot(best[2])>=.999]
+    # Rounded support distance avoids floating-point noise changing a tie.
+    chosen=max(parallel,key=lambda item:(round(item[3].dot(direction),6),-item[1]))
+    return chosen[1],chosen[2],chosen[4],[(i,round(score,3)) for score,i,_,_,_ in ranked]

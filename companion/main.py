@@ -32,7 +32,15 @@ def main(argv=None):
     parser.add_argument('--device', type=int, help='Optional microphone device index')
     parser.add_argument('--push-to-talk', action='store_true', help='With --mic, /talk arms audio and /end mutes and commits')
     parser.add_argument('--synthetic', action='store_true', help='Accept raw type/payload JSON lines for camera-free gesture testing')
+    parser.add_argument('--record-landmarks', help='New private JSONL file; opt-in landmarks/events only')
+    parser.add_argument('--record-seconds', type=float, default=20.)
+    parser.add_argument('--replay-landmarks', help='Replay a landmark capture after Blender connects; no camera')
     args = parser.parse_args(argv)
+    if args.replay_landmarks and (args.camera is not None or args.mic or args.record_landmarks):
+        parser.error('Replay cannot run alongside live capture or recording')
+    if args.record_landmarks and not args.two_hands:
+        parser.error('--record-landmarks requires --two-hands')
+    if not 1 <= args.record_seconds <= 60:parser.error('--record-seconds must be 1–60')
     if args.camera is not None and not (args.two_hands or args.legacy_hands):
         parser.error('--camera requires --two-hands or explicit --legacy-hands')
     if args.legacy_hands and args.camera is None:
@@ -62,7 +70,8 @@ def main(argv=None):
         from companion.hands.tracker import run_hand_tracker
         config = dict(camera_index=args.camera, preview=False, two_hands=args.two_hands,
                       manipulator_hand=args.manipulator_hand, pinch_start=.35,
-                      pinch_release=.60, loss_cancel_s=.5)
+                      pinch_release=.60, loss_cancel_s=.5,
+                      record_landmarks=args.record_landmarks, record_seconds=args.record_seconds)
         if args.model:
             config['model_path'] = args.model
         print(f'Hands config: {config}', flush=True)
@@ -78,6 +87,10 @@ def main(argv=None):
     previous = signal.signal(signal.SIGTERM, lambda *_: stop.set())
     if args.camera is not None:
         worker('Hands', hands)
+    if args.replay_landmarks:
+        from companion.hands.recording import run_replay
+        worker('Replay',lambda:run_replay(args.replay_landmarks,server.emit,stop,lambda:server.session_id))
+    print('Air Modeler companion 0.9.0; hands profile left_clutch_v3',flush=True)
     if args.mic:
         worker('Voice', voice)
     help_text = ('Connect in Blender, wait for READY. Type create cube/sphere/cylinder/triangular prism, '

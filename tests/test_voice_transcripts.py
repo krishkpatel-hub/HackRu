@@ -1,5 +1,6 @@
 import threading
 import unittest
+from unittest.mock import patch
 
 from companion.voice.transcripts import TranscriptHandler
 
@@ -54,7 +55,7 @@ class TranscriptTests(unittest.TestCase):
         self.assertEqual(self.events, [])
 
     def test_empty_or_malformed_timestamps_fail_closed(self):
-        for words in [[], [{"text": "undo"}],
+        for words in [[], "invalid", ["invalid"], [{"text": "undo"}],
                       [{"start": float("nan"), "end": 1}],
                       [{"start": 5, "end": 1}], [{"start": -1, "end": 2}]]:
             self.handler.handle({"message_type": "committed_transcript_with_timestamps",
@@ -66,3 +67,16 @@ class TranscriptTests(unittest.TestCase):
         self.stop.set()
         self.handler.handle(committed())
         self.assertEqual(self.events, [])
+
+    def test_bounded_cache_still_rejects_old_replays_and_allows_new_repetition(self):
+        with patch("companion.voice.transcripts.MAX_RECENT_TRANSCRIPTS", 2):
+            for start in [1.0, 2.0, 3.0, 1.0, 4.0]:
+                self.handler.handle(committed(start=start))
+        self.assertEqual(len(self.handler.seen), 2)
+        self.assertEqual(len(self.events), 4)
+
+    def test_spacing_without_timing_does_not_invalidate_word_timestamps(self):
+        data = committed()
+        data["words"].insert(1, {"type": "spacing", "text": " "})
+        self.handler.handle(data)
+        self.assertEqual(len(self.events), 1)

@@ -77,6 +77,7 @@ async def _stream(emit, stop, config, api_key, dependencies):
         raise VoiceError("Unsupported PCM sample rate; use 16000 or 48000.")
     if config.connection_timeout <= 0 or config.operation_timeout <= 0:
         raise VoiceError("Connection and operation timeouts must be positive.")
+    config.feedback("Checking microphone access. Allow the OS microphone prompt if shown.")
     try:
         sd.check_input_settings(device=config.device, channels=1, dtype="int16",
                                 samplerate=config.sample_rate)
@@ -147,16 +148,21 @@ async def _stream(emit, stop, config, api_key, dependencies):
                 language_code="en",
                 vad_silence_threshold_secs=0.6,
             )
-            connection = await _interruptible(
-                client.speech_to_text.realtime.connect(options), stop, failures,
-                config.connection_timeout)
-            events = sdk.RealtimeEvents
-            connection.on(events.SESSION_STARTED, lambda data: ready.set())
-            connection.on(events.PARTIAL_TRANSCRIPT, transcript)
-            connection.on(events.COMMITTED_TRANSCRIPT, transcript)
-            connection.on(events.COMMITTED_TRANSCRIPT_WITH_TIMESTAMPS, transcript)
-            connection.on(events.ERROR, on_error)
-            connection.on(events.CLOSE, on_close)
+            async def connect_registered():
+                # Register in the same task as connect(), before the SDK's newly
+                # scheduled receiver can consume session_started or an auth error.
+                conn = await client.speech_to_text.realtime.connect(options)
+                events = sdk.RealtimeEvents
+                conn.on(events.SESSION_STARTED, lambda data: ready.set())
+                conn.on(events.PARTIAL_TRANSCRIPT, transcript)
+                conn.on(events.COMMITTED_TRANSCRIPT, transcript)
+                conn.on(events.COMMITTED_TRANSCRIPT_WITH_TIMESTAMPS, transcript)
+                conn.on(events.ERROR, on_error)
+                conn.on(events.CLOSE, on_close)
+                return conn
+
+            connection = await _interruptible(connect_registered(), stop, failures,
+                                              config.connection_timeout)
             await _interruptible(ready.wait(), stop, failures, config.connection_timeout)
             if failures:
                 raise failures[0]
@@ -193,11 +199,11 @@ async def _stream(emit, stop, config, api_key, dependencies):
                 raise
             except _Stopped:
                 raise
-            except Exception as error:
+            except Exception:
                 raise VoiceError(
                     "Microphone streaming failed. Check microphone permission and input device; "
                     "typed commands remain available."
-                ) from error
+                ) from None
         except _Stopped:
             pass
         except VoiceError:
@@ -213,7 +219,7 @@ async def _stream(emit, stop, config, api_key, dependencies):
                 hint = ERROR_HINTS["rate_limited"]
             else:
                 hint = "Scribe connection failed. Check internet access and sponsored Scribe access."
-            raise VoiceError(hint) from error
+            raise VoiceError(hint) from None
         finally:
             closing.set()
             if connection is not None:

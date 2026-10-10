@@ -52,8 +52,6 @@ class FakeConnection:
 
     def on(self, event, handler):
         self.handlers[event] = handler
-        if event == "session_started":
-            asyncio.get_running_loop().call_soon(handler, {"session_id": "test"})
 
     async def send(self, data):
         self.audio.append(base64.b64decode(data["audio_base_64"]))
@@ -90,6 +88,10 @@ class MicrophoneTests(unittest.TestCase):
         async def default_connect(options):
             connection.strategy = options["commit_strategy"]
             connection.options = options
+            # Match the SDK: its receiver starts immediately as connect returns.
+            asyncio.get_running_loop().call_soon(
+                lambda: connection.handlers.get("session_started", lambda data: None)(
+                    {"session_id": "test"}))
             return connection
 
         events = SimpleNamespace(**{name.upper(): name for name in [
@@ -170,3 +172,58 @@ class MicrophoneTests(unittest.TestCase):
                 patch.object(microphone, "_dependencies", return_value=deps):
             run_voice(lambda event: None, stop, {"feedback": lambda message: None})
         self.assertTrue(cancelled and client.closed)
+
+    def test_connection_timeout_cancels_attempt_and_closes_http(self):
+        stop = threading.Event()
+        cancelled = []
+
+        async def hanging_connect(options):
+            try:
+                await asyncio.Future()
+            finally:
+                cancelled.append(True)
+
+        deps, _conn, client = self.make_dependencies(stop, connect=hanging_connect)
+        with patch.dict("os.environ", {"ELEVENLABS_API_KEY": "secret-value"}), \
+                patch.object(microphone, "_dependencies", return_value=deps):
+            with self.assertRaisesRegex(VoiceError, "timed out"):
+                run_voice(lambda event: None, stop,
+                          {"connection_timeout": 0.01, "feedback": lambda message: None})
+        self.assertTrue(cancelled and client.closed)
+
+    def test_stop_interrupts_blocked_audio_send_and_closes_resources(self):
+        stop = threading.Event()
+        deps, conn, client = self.make_dependencies(stop)
+        cancelled = []
+
+        async def hanging_send(data):
+            try:
+                stop.set()
+                await asyncio.Future()
+            finally:
+                cancelled.append(True)
+
+        conn.send = hanging_send
+        with patch.dict("os.environ", {"ELEVENLABS_API_KEY": "secret-value"}), \
+                patch.object(microphone, "_dependencies", return_value=deps):
+            run_voice(lambda event: None, stop, {"feedback": lambda message: None})
+        self.assertTrue(cancelled and conn.closed and deps[0].closed and client.closed)
+
+    def test_connection_exception_does_not_include_secret_in_traceback(self):
+        import traceback
+
+        stop = threading.Event()
+
+        async def failed_connect(options):
+            raise RuntimeError("SDK echoed secret-value")
+
+        deps, _conn, client = self.make_dependencies(stop, connect=failed_connect)
+        with patch.dict("os.environ", {"ELEVENLABS_API_KEY": "secret-value"}), \
+                patch.object(microphone, "_dependencies", return_value=deps):
+            try:
+                run_voice(lambda event: None, stop, {"feedback": lambda message: None})
+            except VoiceError:
+                self.assertNotIn("secret-value", traceback.format_exc())
+            else:
+                self.fail("Expected connection error")
+        self.assertTrue(client.closed)

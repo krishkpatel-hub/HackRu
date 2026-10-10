@@ -66,8 +66,13 @@ threading.Thread(target=run_hand_tracker, args=(emit, stop_event, {"preview": Fa
 Choices to know about (all within the README contract, but not spelled out in it):
 - **`pinching` means "gesture active", not "fingers touching right now".** During a <0.5 s dropout mid-pinch the frames read
   `present:false, pinching:true, u/v:null` (= frozen). Blender should key off `gesture_*` events, not `pinching`.
-- `gesture_start` coordinates are the cursor position when the pinch *began* (start of the stability window), and `gesture_end`
-  coordinates are the position when the release *began*. This avoids the cursor drifting as the fingers close/open.
+- **Pinch-aware cursor (fix found in live Blender testing, see below).** The index tip is *not* a stable cursor while pinching: on a
+  laptop webcam it drops ~0.16 of the frame height as the fingers close. So: while the ratio is below `pinch_approach` the cursor
+  holds the aim point from `anchor_lookback_ms` before the closing began; `gesture_start` reports that aim point; during the pinch
+  the cursor moves by the **palm** displacement (wrist + index/middle/pinky MCP, which barely move when the fingers squeeze) added to
+  that start point; when the ratio rises `open_hold_delta` above its recent minimum (release began) the cursor freezes, and
+  `gesture_end` reports the frozen position. A hand resting at a ratio between `pinch_release` and `pinch_approach` is only held for
+  `approach_hold_max_s`, then the cursor follows the tip again. Blender still receives plain `u`/`v`; no interface change.
 - The first pinch after startup, after loss ≥ 0.5 s, and after a cancel all require a visibly open hand (ratio ≥ release for the stability window).
 - Smoothing is reset when the hand is re-acquired (no sliding in from the old position).
 
@@ -79,6 +84,10 @@ Choices to know about (all within the README contract, but not spelled out in it
 | `pinch_start` | 0.35 | thumb-tip↔index-tip distance / palm size at or below which a pinch starts |
 | `pinch_release` | 0.60 | ratio at or above which it releases; must be > `pinch_start` (the gap is the hysteresis dead band) |
 | `pinch_stable_ms` | 80 | how long a condition must hold (≈3 frames at 30 fps) |
+| `pinch_approach` | 0.75 | ratio below which the cursor holds its pre-close aim point (must exceed `pinch_release`) |
+| `anchor_lookback_ms` | 100 | aim point = cursor this long before the hold began (the tip is already moving when the ratio crosses `pinch_approach`) |
+| `approach_hold_max_s` | 0.4 | a hold that never becomes a pinch is released after this long |
+| `open_hold_delta` | 0.10 | ratio rise over the pinch minimum that freezes the cursor for the release |
 | `loss_cancel_s` | 0.5 | sustained loss before cancel |
 | `emit_hz`, `camera_index`, `width`/`height`/`camera_fps` (640×480@30), `min_*_confidence` (0.5) | | |
 
@@ -117,7 +126,36 @@ Actually performed:
 **Not verified:**
 - Longer sessions (>10 min), other lighting/backgrounds, and a second person's hand; the tests used one tester in a dim room.
 - Windows/Linux (code has no platform-specific paths besides the macOS main-thread rule).
-- Smoothing value on real drags (0.5 default, not tuned by feel), and a pinch with Blender actually consuming the events.
+- Wrist rotation while pinched: the cursor follows the palm centre, so rotating the wrist moves it less than the fingertip would.
+
+## Live Blender testing (2026-10-10, add-on 0.5.0, target commit 8eda4fe, Blender 5.2.2 LTS)
+
+Setup: separate worktree pinned to `8eda4fe`, Python 3.12.8 venv from Pro's `requirements.txt` (mediapipe 1.1.0, opencv-contrib 4.11.0.86,
+numpy 1.26.4; `pip check` clean), 63 tests + 78 subtests pass there. Camera index discovered with `--list-cameras`: laptop = **2** (0 was the
+iPhone Continuity Camera when connected, 1 = OBS); Blender's installed add-on matched the built ZIP byte for byte. Launch:
+`<worktree>/.venv/bin/python -m companion.main --camera 2`. Pro's runner uses `preview=False`, so no camera view; the Blender cursor
+(white/green/orange) was the only feedback.
+
+Observed with a live hand (tester reports plus Blender's own `STATUS` stream in the companion log):
+- **Test 1 (hover, no pinch): passed** per tester: white cursor off the cube, green on it, nothing rotated/moved/changed selection, cursor followed the
+  hand in the right directions. Blender status showed `hovered_object` toggling between the cube and none, `tracking: true`.
+- **Test 2 (pinch/drag/release in MOVE): partly verified.** Before the fix: 10 drags started, 4 released normally, 6 interrupted (4 with
+  "Tracking lost or stale for 0.5 seconds", 2 without a message). The tester's complaint: closing thumb+index slid the cursor off the cube,
+  and opening the pinch moved the cube before it dropped. Cause: the fingertip cursor (see above). After the fix: **5 drags started, 5 released
+  normally, 0 interrupted** (tester: "I like this change"). Cube positions after each drag and the two Undo steps were not recorded by me.
+- **Measured fix effect** on a 59 s recording of the tester's still hand (10 pinch/open cycles; index-tip shift pinched vs open = 0.158 of frame
+  height): start vs pre-close aim 0.096 → 0.023, cursor excursion during the hold 0.106 → 0.016, net start→end drag 0.039 → 0.016 (normalized units; median of 8/7 gestures).
+  New tests: synthetic closing/opening, palm-driven drag, relaxed-hand hold expiry and a real-landmark fixture (`real_still_pinch.json`); 3 of the 4 fail on the previous engine.
+- **Shutdown (test 10, partly):** typed `quit` ended the companion, no process remained, the camera was reopened by later runs 3 times. The camera
+  indicator light was not checked.
+
+**Not performed (do not treat as passed):** tests 3 (rotate X/Y/Z), 4 (scale), 5–7 (extrude cube/prism, face highlight), 8 (return to MOVE after special tools), 9 (Escape,
+typed cancel, sustained loss, disconnect during previews), and the Undo-twice step of test 2. They need to be run on the demo laptop.
+
+Blender version note for Pro: on **Blender 5.1.1** (the tester's first install) the add-on enabled and passed the background and `move_check`/`extrusion_check`
+foreground checks, but `transform_check.py` segfaulted once (exit 139, crash in `DepsgraphRelationBuilder::build_world` during a
+`create_primitive` triggered from `bridge.py` modal `tick()` right after two `undo` commands) and passed on two reruns. The add-on declares
+`blender >= 5.2.0`; the live tests above ran on 5.2.2.
 
 ## Compatibility with Pro's validator (checked 2026-10-10)
 
@@ -129,7 +167,7 @@ documents movement/gesture handling as not implemented.
 
 - One hand only (`num_hands=1`); it picks whichever hand MediaPipe reports first.
 - 2D only: a hand pointing straight at the camera shrinks palm size and makes the ratio less reliable.
-- Cursor is the index fingertip, which moves slightly while pinching; mitigated by the start/end position rule above, not eliminated.
+- Hovering follows the index tip; during a pinch the cursor follows the palm centre (see the pinch-aware cursor), so a large wrist rotation moves the cursor less than the fingertip.
 - Camera frame timing drives everything: if the camera stalls the loop emits nothing until frames resume or the 3 s fail timeout raises.
 - MediaPipe VIDEO mode runs inference synchronously on the tracker thread (CPU delegate, XNNPACK); frame rate depends on the machine.
 - Model "latest" URL can change upstream; sha256 above is the tested file.

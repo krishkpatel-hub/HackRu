@@ -37,6 +37,13 @@ class HandConfig:
     pinch_release: float = 0.60    # ratio at or above this releases (must exceed pinch_start)
     pinch_stable_ms: float = 80.0  # condition must hold this long before a transition
 
+    # Pinch-aware cursor. Closing/opening the fingers moves the index tip (~15% of frame height on a
+    # laptop webcam), so the cursor is held while fingers close/open instead of following the tip.
+    pinch_approach: float = 0.75      # ratio below which the cursor holds its pre-close aim point
+    anchor_lookback_ms: float = 100.0 # aim point = cursor this long before the hold began
+    approach_hold_max_s: float = 0.4  # a hold that never becomes a pinch is released after this long
+    open_hold_delta: float = 0.10     # ratio rise above the pinch minimum that freezes the cursor (release began)
+
     # Tracking loss
     loss_cancel_s: float = 0.5
 
@@ -62,6 +69,10 @@ class HandConfig:
             raise ValueError("smoothing must be in [0, 1)")
         if not 0.0 < self.pinch_start < self.pinch_release:
             raise ValueError("need 0 < pinch_start < pinch_release")
+        if self.pinch_approach <= self.pinch_release or self.open_hold_delta <= 0:
+            raise ValueError("need pinch_approach > pinch_release and open_hold_delta > 0")
+        if self.anchor_lookback_ms < 0 or self.approach_hold_max_s <= 0:
+            raise ValueError("anchor_lookback_ms must be >= 0 and approach_hold_max_s > 0")
         if self.pinch_stable_ms < 0 or self.loss_cancel_s < 0:
             raise ValueError("pinch_stable_ms and loss_cancel_s must be >= 0")
         if self.emit_hz <= 0:

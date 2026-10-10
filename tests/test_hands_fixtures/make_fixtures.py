@@ -6,12 +6,16 @@ ASPECT = 4 / 3
 PALM = 0.25  # wrist->middle MCP in image-height units
 
 
-def hand(u, v, ratio):
-    """Synthetic landmarks: index tip at (u, v), thumb tip ratio*palm away (to the left)."""
-    thumb = (u - ratio * PALM / ASPECT, v)
-    r = lambda p: [round(p[0], 4), round(p[1], 4)]
-    return {"0": r((0.5, 0.8)), "4": r(thumb), "5": r((0.42, 0.6)),
-            "8": r((u, v)), "9": r((0.5, 0.55)), "17": r((0.6, 0.62))}
+def hand(u, v, ratio, tip_dropout=0.0):
+    """Synthetic landmarks: the whole hand translates with (u, v); index tip at (u, v), thumb tip
+    ratio*palm away (to the left). ``tip_dropout`` moves only the fingertips down, like the real
+    index tip curling when the fingers pinch (the palm does not move)."""
+    dx, dy = u - 0.5, v - 0.5
+    tip = (u, v + tip_dropout)
+    thumb = (u - ratio * PALM / ASPECT, v + tip_dropout)
+    r = lambda p: [round(p[0] + dx, 4), round(p[1] + dy, 4)]
+    return {"0": r((0.5, 0.8)), "4": [round(thumb[0], 4), round(thumb[1], 4)], "5": r((0.42, 0.6)),
+            "8": [round(tip[0], 4), round(tip[1], 4)], "9": r((0.5, 0.55)), "17": r((0.6, 0.62))}
 
 
 def build(segments, fps=30):

@@ -99,7 +99,7 @@ def test_preview_is_dropped_off_main_thread_on_macos(monkeypatch):
     assert not th.is_alive() and cap.released
 
 
-def test_two_hand_tracker_single_stream_one_manipulator(monkeypatch):
+def test_two_hand_tracker_single_stream_coherent_observations(monkeypatch):
     cap=FakeCap(); lm=FakeLandmarker()
     monkeypatch.setattr(tracker,'_open_camera',lambda cfg:cap)
     monkeypatch.setattr(tracker,'_make_landmarker',lambda cfg:lm)
@@ -114,12 +114,52 @@ def test_two_hand_tracker_single_stream_one_manipulator(monkeypatch):
     events=[]; stop=threading.Event()
     def emit(event):
         events.append(event)
-        if event['type']=='gesture_start': stop.set()
+        if event['type']=='hands_frame' and event['payload']['hands']['Right']['event']=='START':
+            stop.set()
     thread=threading.Thread(target=tracker.run_hand_tracker,args=(emit,stop,{'two_hands':True,'smoothing':0}))
     thread.start(); thread.join(5)
     if thread.is_alive(): stop.set();thread.join(2)
     assert not thread.is_alive() and cap.released and lm.closed
-    assert len([e for e in events if e['type']=='gesture_start'])==1
-    assert any(e['type']=='selector_frame' for e in events)
+    assert all(e['type']=='hands_frame' for e in events)
+    assert len([e for e in events if e['payload']['hands']['Right']['event']=='START'])==1
+    assert events[-1]['payload']['hands']['Right']['event']=='CANCEL'
+    assert not any(e['payload']['hands']['Left']['event']=='START' for e in events)
+    from shared.protocol import validate_event
+    for event in events: validate_event(event)
+
+
+def test_two_hand_pipeline_mirrors_once_before_inference(monkeypatch):
+    class PatternCap(FakeCap):
+        def read(self):
+            frame=np.zeros((2,4,3),np.uint8)
+            frame[:,0,:]=10
+            frame[:,-1,:]=200
+            return True,frame
+    cap=PatternCap();lm=FakeLandmarker();stop=threading.Event();seen=[]
+    monkeypatch.setattr(tracker,'_open_camera',lambda cfg:cap)
+    monkeypatch.setattr(tracker,'_make_landmarker',lambda cfg:lm)
+    def detect(_landmarker,frame,_timestamp):
+        seen.append(frame.copy())
+        return []
+    monkeypatch.setattr(tracker,'detect_hands',detect)
+    tracker.run_hand_tracker(lambda event:stop.set(),stop,{'two_hands':True})
+    assert len(seen)==1
+    assert np.all(seen[0][:,0,:]==200) and np.all(seen[0][:,-1,:]==10)
+    assert cap.released and lm.closed
+
+
+def test_two_hand_camera_failure_cancels_and_releases(monkeypatch):
+    cap=FakeCap(fail_after=85);lm=FakeLandmarker();events=[]
+    monkeypatch.setattr(tracker,'_open_camera',lambda cfg:cap)
+    monkeypatch.setattr(tracker,'_make_landmarker',lambda cfg:lm)
+    monkeypatch.setattr(tracker,'detect_hands',lambda *_:[
+        ('Left',.99,hand(mf.OPEN if cap.n<55 else mf.PINCH))])
+    with pytest.raises(RuntimeError,match='camera stopped'):
+        tracker.run_hand_tracker(events.append,threading.Event(),
+            {'two_hands':True,'camera_fail_timeout_s':.1,'smoothing':0})
+    assert cap.released and lm.closed
+    transitions=[event['payload']['hands']['Left']['event'] for event in events
+                 if event['payload']['hands']['Left']['event']!='NONE']
+    assert transitions==['START','CANCEL']
     from shared.protocol import validate_event
     for event in events: validate_event(event)

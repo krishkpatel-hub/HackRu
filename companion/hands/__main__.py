@@ -28,8 +28,9 @@ def list_cameras() -> int:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m companion.hands", description=__doc__)
     p.add_argument("--camera", type=int, default=0, help="camera index (default 0)")
-    p.add_argument("--two-hands", action="store_true", help="Enable selector observations")
-    p.add_argument("--manipulator-hand", choices=("Left","Right"), default="Right")
+    p.add_argument("--two-hands", action="store_true", help="Coherent anatomical left/right observations for selection clutch controls")
+    p.add_argument("--manipulator-hand", choices=("Left","Right"), default="Right",
+                   help="Deprecated compatibility option; clutch mode always uses anatomical roles")
     p.add_argument("--no-preview", action="store_true", help="headless: no window")
     p.add_argument("--model", help="path to hand_landmarker.task")
     p.add_argument("--smoothing", type=float, help="cursor smoothing 0..<1 (default 0.5)")
@@ -37,7 +38,7 @@ def main(argv=None) -> int:
     p.add_argument("--pinch-release", type=float, help="pinch ratio to release (default 0.60)")
     p.add_argument("--stable-ms", type=float, help="stability window in ms (default 80)")
     p.add_argument("--list-cameras", action="store_true", help="probe camera indexes 0-4 and exit")
-    p.add_argument("--no-frames", action="store_true", help="print only gesture_* events")
+    p.add_argument("--no-frames", action="store_true", help="print only gesture transition events/frames")
     a = p.parse_args(argv)
     if a.list_cameras:
         return list_cameras()
@@ -51,6 +52,9 @@ def main(argv=None) -> int:
 
     def emit(event: dict) -> None:
         if a.no_frames and event["type"] == "hand_frame":
+            return
+        if (a.no_frames and event["type"] == "hands_frame" and
+                all(hand['event'] == 'NONE' for hand in event['payload']['hands'].values())):
             return
         print(json.dumps(event, separators=(",", ":")), flush=True)
 

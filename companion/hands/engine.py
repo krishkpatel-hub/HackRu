@@ -138,6 +138,7 @@ class HandEngine:
             self._cancel("tracking_lost", events)
 
     def _on_seen(self, t, dt, raw, palm_raw, ratio, events) -> None:
+        recovered = self._lost_since is not None
         self._lost_since = None
         self.present = True
         self.ratio = ratio
@@ -149,6 +150,10 @@ class HandEngine:
             self._hist.popleft()
 
         if self.gesture_id is not None:
+            if recovered:
+                # Missing frames supply no motion. Resume at the last accepted cursor,
+                # rather than applying movement made while the hand was unobservable.
+                self._anchor_tip, self._anchor_out = palm, self._last_good
             self._active(t, palm, ratio, events)
             return
 

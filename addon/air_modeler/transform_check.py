@@ -34,6 +34,30 @@ def expected(initial, mode, axis, start, end, rotation=math.tau, scaling=math.lo
 
 
 class Check(helpers.Check):
+    # Synthetic camera heartbeat during ordinary waits. Explicit stale tests
+    # disable it; absent-hand frames remain absent. Do not relax production loss.
+    heartbeat = None
+    heartbeat_enabled = True
+    heartbeat_due = 0.0
+
+    def frame(self, uv=(.5,.5), pinch=False, present=True):
+        self.heartbeat = (uv,pinch,present)
+        self.heartbeat_due = time.monotonic() + .04
+        super().frame(uv,pinch,present)
+
+    def gesture(self, kind, identifier, uv):
+        super().gesture(kind,identifier,uv)
+        if kind == 'start' and (self.runtime().drag is None or self.runtime().drag.identifier == identifier):
+            self.heartbeat = (uv,True,True)
+        elif kind == 'end' and self.runtime().drag and self.runtime().drag.identifier == identifier:
+            self.heartbeat = (uv,False,True)
+
+    def step(self):
+        if self.stage == 'run' and self.heartbeat_enabled and self.heartbeat and time.monotonic() >= self.heartbeat_due:
+            super().frame(*self.heartbeat)
+            self.heartbeat_due = time.monotonic() + .04
+        return super().step()
+
     def wait_for(self, predicate, label):
         deadline = time.monotonic() + 2
         while not predicate():
@@ -71,12 +95,12 @@ class Check(helpers.Check):
                 self.line(command)
                 self.frame(self.uv())
                 yield .12
-                yield from self.wait_for(lambda: self.runtime().mode == mode, 'mode command delivery')
+                yield from self.wait_for(lambda: self.runtime().mode == mode and self.runtime().axis == axis, 'mode/axis command delivery')
                 assert self.runtime().axis == axis
                 start = self.uv()
                 gid = str(uuid4())
                 self.gesture('start', gid, start)
-                yield .12
+                yield from self.wait_for(lambda: self.runtime().drag is not None and self.runtime().drag.identifier == gid, 'gesture START delivery')
                 yield from self.wait_matrix(baseline)
                 end = (start[0] + .10, start[1] - .15)
                 self.frame(end, True)
@@ -103,7 +127,7 @@ class Check(helpers.Check):
                 yield from self.wait_matrix(baseline)  # return to start
                 final_uv = (start[0] - .075, start[1] + .13)
                 self.gesture('end', gid, final_uv)
-                yield .12
+                yield from self.wait_for(lambda: self.runtime().drag is None, 'gesture END delivery')
                 final = expected(baseline, mode, axis, start, final_uv)
                 yield from self.wait_matrix(final)
                 assert self.runtime().mode == 'MOVE' and self.runtime().phase == 'IDLE'
@@ -111,9 +135,9 @@ class Check(helpers.Check):
                 next_start = self.uv()
                 gid2 = str(uuid4())
                 self.gesture('start', gid2, next_start)
-                yield .1
+                yield from self.wait_for(lambda: self.runtime().drag is not None and self.runtime().drag.identifier == gid2, 'MOVE START delivery')
                 self.gesture('end', gid2, (next_start[0] + .025, next_start[1]))
-                yield .12
+                yield from self.wait_for(lambda: self.runtime().drag is None, 'MOVE END delivery')
                 assert (self.position() - baseline.translation).length > .1
                 self.line('undo')
                 yield .12
@@ -133,7 +157,7 @@ class Check(helpers.Check):
                 start = self.uv()
                 gid = str(uuid4())
                 self.gesture('start', gid, start)
-                yield .1
+                yield from self.wait_for(lambda: self.runtime().drag is not None and self.runtime().drag.identifier == gid, 'gesture START delivery')
                 self.frame((start[0] + .08, start[1] - .15), True)
                 yield .12
                 assert self.runtime().drag is not None
@@ -144,7 +168,9 @@ class Check(helpers.Check):
                         self.frame(pinch=True, present=False)
                         yield .1
                 elif reason == 'stale':
+                    self.heartbeat_enabled = False
                     yield .6
+                    self.heartbeat_enabled = True
                 elif reason == 'disconnect':
                     self.module.bridge.disconnect()
                     yield .12
@@ -171,13 +197,13 @@ class Check(helpers.Check):
             # Unchanged and cancelled transforms add no history entries.
             self.window.scene.cursor.location = (8, 0, 0)
             self.line('create sphere')
-            yield .12
+            yield from self.wait_for(lambda: len(self.objects()) == 2, 'sentinel spawn delivery')
             sphere = self.window.view_layer.objects.active.name
             gid = str(uuid4())
             self.gesture('start', gid, self.uv())
-            yield .1
+            yield from self.wait_for(lambda: self.runtime().drag is not None and self.runtime().drag.identifier == gid, 'unchanged START delivery')
             self.gesture('end', gid, self.uv())
-            yield .12
+            yield from self.wait_for(lambda: self.runtime().drag is None, 'gesture END delivery')
             self.line(command)
             yield .1
             self.gesture('start', str(uuid4()), self.uv())
@@ -186,7 +212,7 @@ class Check(helpers.Check):
             yield .1
             self.line('undo')  # cancel preview first, undo sphere creation
             yield .12
-            assert sphere not in self.window.scene.objects
+            yield from self.wait_for(lambda: sphere not in self.window.scene.objects, 'sentinel Undo delivery')
             yield from self.wait_matrix(original)
             print('PASS', command, 'cancel/loss/stale/disconnect, release gate, missed pinch retains mode, unchanged release and Undo during drag', flush=True)
         # High test sensitivity reaches both factor bounds using valid u/v.
@@ -199,7 +225,8 @@ class Check(helpers.Check):
         start = self.uv()
         gid = str(uuid4())
         self.gesture('start', gid, start)
-        yield .1
+        yield from self.wait_for(lambda: self.runtime().drag is not None and self.runtime().drag.identifier == gid, 'gesture START delivery')
+        assert self.runtime().drag.config.scale_sensitivity == 20
         module.CONFIG = config  # active drag must retain captured sensitivity
         for v, factor in ((0, 10), (1, .1), (start[1], 1)):
             self.frame((start[0], v), True)
@@ -209,7 +236,7 @@ class Check(helpers.Check):
             yield from self.wait_matrix(wanted)
             assert abs(self.runtime().drag.amount - factor) < 1e-5
         self.gesture('end', gid, start)
-        yield .12
+        yield from self.wait_for(lambda: self.runtime().drag is None, 'gesture END delivery')
         # Negative scale signs must survive Blender's matrix setter, too.
         self.obj().scale = (-1.2, .7, 1.5)
         yield .1
@@ -223,14 +250,14 @@ class Check(helpers.Check):
                 start = self.uv()
                 gid = str(uuid4())
                 self.gesture('start', gid, start)
-                yield .1
+                yield from self.wait_for(lambda: self.runtime().drag is not None and self.runtime().drag.identifier == gid, 'gesture START delivery')
                 end = (start[0] + .075, start[1] - .1)
                 self.frame(end, True)
                 yield .12
                 yield from self.wait_matrix(expected(reflected, mode, 'X', start, end))
                 assert tuple(v < 0 for v in self.obj().scale) == (True, False, False)
                 self.gesture('end', gid, end)
-                yield .12
+                yield from self.wait_for(lambda: self.runtime().drag is None, 'gesture END delivery')
                 yield from self.wait_matrix(expected(reflected, mode, 'X', start, end))
                 assert tuple(v < 0 for v in self.obj().scale) == (True, False, False)
                 # Restore a known baseline outside history for the next case.
@@ -238,11 +265,12 @@ class Check(helpers.Check):
                 yield .1
         print('PASS negative scale signs and world matrices in Euler/quaternion/axis-angle modes', flush=True)
         self.line('extrude')
-        yield .1
+        yield from self.wait_for(lambda: self.runtime().mode == 'EXTRUDE', 'extrude mode delivery')
         assert self.runtime().mode == 'EXTRUDE'
         print('PASS scale bounds, captured config, unchanged release, extrusion mode arming', flush=True)
+        self.heartbeat_enabled = False
         self.line('quit')
-        yield .2
+        yield from self.wait_for(lambda: self.runtime() is None, 'shutdown delivery')
         assert self.runtime() is None
         print('PASS real TCP ROTATE/SCALE milestone', flush=True)
 

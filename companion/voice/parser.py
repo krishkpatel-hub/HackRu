@@ -2,7 +2,7 @@
 
 import unicodedata
 import re
-from shared.protocol import validate_precision, ProtocolError
+from shared.protocol import validate_mode, validate_precision, ProtocolError
 
 
 def normalize_text(text: str) -> str:
@@ -31,6 +31,21 @@ def parse_command(text: str) -> dict | None:
             except ProtocolError:
                 return None
             return payload
+    # Plane/axis phrases remain whole commands: no conversational extraction.
+    plane_match = re.fullmatch(r"(?:extrude|extend) plane (auto|xy|xz|yz)(?: axis (none|x|y|z))?", precise)
+    axis_match = re.fullmatch(r"(?:extrude|extend) axis (none|x|y|z)", precise)
+    if plane_match or axis_match:
+        payload = dict(action="set_mode", mode="EXTRUDE", plane="AUTO", axis="NONE")
+        if plane_match:
+            payload["plane"] = plane_match[1].upper()
+            payload["axis"] = (plane_match[2] or "none").upper()
+        else:
+            payload["axis"] = axis_match[1].upper()
+        try:
+            validate_mode(dict(payload, id="validation-only"))
+        except ProtocolError:
+            return None
+        return payload
     words = normalize_text(text).split()
     if len(words) >= 2 and words[0] in {"create", "add"}:
         shape = " ".join(words[1:])

@@ -48,13 +48,36 @@ class Check(helpers.Check):
         return center,normal
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,6,0)
+        assert self.module.bl_info['version']==(0,7,0)
         self.line('create cube'); yield .3
         self.name=self.window.view_layer.objects.active.name
         self.obj().rotation_euler=(.3,-.2,.4); self.obj().scale=(1.2,.7,1.5)
         yield .1
         with self.override(): bpy.ops.ed.undo_push(message='Precision test baseline')
         baseline=self.obj().matrix_world.copy()
+        # No hand observations have been sent. Idle cancellation/reconnect must
+        # leave typed-only precision usable rather than manufacturing a gate.
+        self.line('rotate x')
+        yield from self.until(lambda:self.runtime().override, 'arm before idle cancel')
+        self.line('cancel')
+        yield from self.until(lambda:not self.runtime().override, 'idle cancel clears override')
+        for stage in ('idle cancel', 'idle reconnect'):
+            if stage == 'idle reconnect':
+                old = self.runtime()
+                self.module.bridge.disconnect()
+                assert old.timer is None and old.draw_handler is None and old.sock.fileno() == -1
+                assert not self.module.bridge._needs_release
+                yield .12
+                self.ready = None
+                self.connect()
+                yield from self.until(lambda:self.ready is not None, 'typed-only reconnect READY')
+            assert self.runtime().phase == 'IDLE'
+            expected = baseline.copy(); expected.translation.x += .75
+            self.line('move x 0.75 units')
+            yield from self.until(lambda:same(self.obj().matrix_world,expected), 'typed precision after '+stage)
+            self.line('undo')
+            yield from self.until(lambda:same(self.obj().matrix_world,baseline), 'single Undo after '+stage)
+        print('PASS typed-only idle cancel/reconnect precision without hand observations',flush=True)
         for phrase,mode,axis,value in [('rotate x 45 degrees','ROTATE','X',45),
                 ('rotate y -30 degrees','ROTATE','Y',-30),('rotate z 45 degrees','ROTATE','Z',45),
                 ('move x -2 units','MOVE','X',-2),('move y 2 units','MOVE','Y',2),
@@ -126,6 +149,8 @@ class Check(helpers.Check):
         self.selector('OPEN'); yield .4
         assert self.runtime().drag is None and self.runtime().phase=='NEEDS_RELEASE'
         assert same(self.obj().matrix_world,baseline)
+        self.line('cancel'); yield .12
+        assert self.runtime().phase=='NEEDS_RELEASE', 'idle cancel must preserve an existing loss gate'
         self.frame((.5,.5),True); yield .1; assert self.runtime().phase=='NEEDS_RELEASE'
         self.frame((.5,.5)); yield .1; assert self.runtime().phase=='IDLE'
         print('PASS selector debounce, voice precedence, drag locking, loss and release gate',flush=True)

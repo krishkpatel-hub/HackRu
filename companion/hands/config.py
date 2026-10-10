@@ -26,7 +26,12 @@ class HandConfig:
     min_tracking_confidence: float = 0.5
 
     two_hands: bool = False
-    manipulator_hand: str = "Right"
+    manipulator_hand: str = "Right"  # legacy CLI compatibility; clutch roles are anatomical/fixed
+    identity_confidence: float = 0.8
+    identity_acquire_s: float = 0.3
+    identity_recover_s: float = 0.08
+    identity_max_step: float = 0.18
+    identity_separation: float = 0.12
 
     # Output
     emit_hz: float = 30.0
@@ -70,6 +75,15 @@ class HandConfig:
     def validate(self) -> None:
         if type(self.two_hands) is not bool or self.manipulator_hand not in {"Left", "Right"}:
             raise ValueError("two_hands must be bool; manipulator_hand must be Left or Right")
+        if self.two_hands and self.manipulator_hand != 'Right':
+            raise ValueError("clutch mode uses fixed anatomical Left selection / Right manipulation roles")
+        import math
+        identity_values = (self.identity_confidence, self.identity_acquire_s,
+                           self.identity_recover_s, self.identity_max_step, self.identity_separation)
+        if not all(type(v) in (int, float) and math.isfinite(v) for v in identity_values):
+            raise ValueError("identity settings must be finite numbers")
+        if not .5 <= self.identity_confidence <= 1 or min(identity_values[1:]) <= 0:
+            raise ValueError("identity confidence must be .5–1 and identity windows/distances positive")
         if not 0.0 <= self.smoothing < 1.0:
             raise ValueError("smoothing must be in [0, 1)")
         if not 0.0 < self.pinch_start < self.pinch_release:

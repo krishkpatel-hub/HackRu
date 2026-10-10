@@ -61,6 +61,8 @@ class AIRMODELER_OT_commit_extrusion(bpy.types.Operator):
     target_name: bpy.props.StringProperty()
     face_index: bpy.props.IntProperty()
     distance: bpy.props.FloatProperty()
+    vector: bpy.props.FloatVectorProperty(size=3)
+    use_vector: bpy.props.BoolProperty(default=False)
     maximum_distance: bpy.props.FloatProperty()
     negligible_distance: bpy.props.FloatProperty()
 
@@ -73,7 +75,9 @@ class AIRMODELER_OT_commit_extrusion(bpy.types.Operator):
         try:
             config = replace(extrusion.CONFIG, maximum_distance=self.maximum_distance,
                              negligible_distance=self.negligible_distance)
-            if not extrusion.commit(obj, self.face_index, self.distance, config):
+            commit = extrusion.commit_vector if self.use_vector else extrusion.commit
+            value = tuple(self.vector) if self.use_vector else self.distance
+            if not commit(obj, self.face_index, value, config):
                 return {'CANCELLED'}
         except (ValueError, RuntimeError) as exc:
             self.report({'ERROR'}, str(exc))
@@ -87,6 +91,12 @@ class AIRMODELER_PG_precision(bpy.types.PropertyGroup):
     angle: bpy.props.FloatProperty(name='Angle (degrees)', default=45, min=-360, max=360)
     factor: bpy.props.FloatProperty(name='Uniform factor', default=1.5, min=.1, max=10)
     distance: bpy.props.FloatProperty(name='World units', default=2, min=-100, max=100)
+    plane: EnumProperty(name='Mapping plane', items=[(p,p,'') for p in ('AUTO','XY','XZ','YZ')], default='AUTO')
+    plane_axis: EnumProperty(name='Plane axis', items=[(a,a,'') for a in ('NONE','X','Y','Z')], default='NONE')
+    move_threshold: bpy.props.FloatProperty(name='Move threshold (image fraction)', default=.025, min=.005, max=.2)
+    twist_threshold: bpy.props.FloatProperty(name='Twist threshold (degrees)', default=8, min=2, max=45)
+    aperture_threshold: bpy.props.FloatProperty(name='Aperture threshold (fraction)', default=.12, min=.03, max=.5)
+    intent_persistence: bpy.props.FloatProperty(name='Intent persistence (seconds)', default=.15, min=.05, max=.5)
     extrusion: bpy.props.FloatProperty(name='Outward world units', default=.5, min=.00002, max=4)
 
 
@@ -116,8 +126,11 @@ class AIRMODELER_OT_precision_apply(bpy.types.Operator):
                 if bridge._runtime is None:
                     raise RuntimeError('Connect Blender before arming a face pinch')
                 bridge._runtime.set_mode('EXTRUDE', distance=amount, source='sidebar override')
+                bridge.redraw()
+                return {'CANCELLED'}  # Arming stages state; it must not push a geometry Undo entry.
             else:
-                transforms.commit_precision(context, payload)
+                if not transforms.commit_precision(context, payload):
+                    return {'CANCELLED'}  # Unchanged values must not add an outer Undo entry.
                 if bridge._runtime is not None:
                     bridge._runtime.completed_mode()
             bridge.redraw()
@@ -139,6 +152,61 @@ class AIRMODELER_OT_precision_reset(bpy.types.Operator):
 
     def execute(self, context):
         values = context.window_manager.air_modeler_precision
-        for key in ('mode','axis','angle','factor','distance','extrusion'):
+        for key in ('mode','axis','angle','factor','distance','extrusion','plane','plane_axis'):
             values.property_unset(key)
+        return {'FINISHED'}
+
+
+class AIRMODELER_OT_arm_gesture(bpy.types.Operator):
+    bl_idname = 'air_modeler.arm_gesture'
+    bl_label = 'Arm Next Gesture'
+    bl_description = 'Override motion classification once; keeps required clutch and manipulation poses'
+
+    @classmethod
+    def poll(cls, context):
+        from . import bridge
+        return bridge._runtime is not None and bridge._runtime.phase == 'IDLE' and not bridge.dragging()
+
+    def execute(self, context):
+        from . import bridge
+        values = context.window_manager.air_modeler_precision
+        try:
+            bridge._runtime.set_mode(values.mode, values.axis, source='sidebar override',
+                plane=values.plane if values.mode == 'EXTRUDE' else 'AUTO',
+                plane_axis=values.plane_axis if values.mode == 'EXTRUDE' else 'NONE')
+            bridge.redraw()
+        except (RuntimeError, ValueError) as exc:
+            self.report({'ERROR'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class AIRMODELER_OT_cancel(bpy.types.Operator):
+    bl_idname = 'air_modeler.cancel'
+    bl_label = 'Cancel Selection / Preview'
+
+    @classmethod
+    def poll(cls, context):
+        from . import bridge
+        return bridge._runtime is not None
+
+    def execute(self, context):
+        from . import bridge
+        bridge._runtime.handle({'type':'command','payload':{'action':'cancel'}})
+        return {'FINISHED'}
+
+
+class AIRMODELER_OT_undo(bpy.types.Operator):
+    bl_idname = 'air_modeler.undo'
+    bl_label = 'Undo Completed Edit'
+
+    @classmethod
+    def poll(cls, context):
+        from . import bridge
+        return bridge._runtime is not None
+
+    def execute(self, context):
+        from . import bridge
+        # This wrapper is not UNDO: the existing native history is consumed once.
+        bridge._runtime.handle({'type':'command','payload':{'action':'undo'}})
         return {'FINISHED'}

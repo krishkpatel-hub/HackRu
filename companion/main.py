@@ -24,7 +24,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--camera', type=int, help='Enable hands using an index discovered with companion.hands --list-cameras')
     parser.add_argument('--model', help='Optional hand landmarker model path')
-    parser.add_argument('--two-hands', action='store_true', help='Enable automatic selector hand observations')
+    parser.add_argument('--two-hands', action='store_true', help='Enable anatomical either-hand MOVE and left-clutch/right-manipulation observations')
     parser.add_argument('--manipulator-hand', choices=('Right', 'Left'), default='Right')
     parser.add_argument('--mic', action='store_true', help='Enable optional ElevenLabs microphone worker')
     parser.add_argument('--device', type=int, help='Optional microphone device index')
@@ -33,6 +33,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.two_hands and args.camera is None:
         parser.error('--two-hands requires --camera')
+    if args.two_hands and args.manipulator_hand != 'Right':
+        parser.error('--two-hands uses anatomical left selection/right manipulation; omit --manipulator-hand Left')
     if args.push_to_talk and not args.mic:
         parser.error('--push-to-talk requires --mic')
     stop = threading.Event()
@@ -74,7 +76,7 @@ def main(argv=None):
         worker('Voice', voice)
     help_text = ('Connect in Blender, wait for READY. Type create cube/sphere/cylinder/triangular prism, '
                  'rotate x/y/z, scale, extrude/extend, move, cancel, undo; status; help; quit. '
-                 'Precision: rotate x 45 degrees; scale by 1.5; move x 2 units; extrude 0.5 units. '
+                 'Planes: extrude plane xy axis x; extrude plane auto. Precision: rotate x 45 degrees; scale by 1.5; move x 2 units; extrude 0.5 units. '
                  'With --mic --push-to-talk: /talk arms, /end mutes and commits; wait for committed feedback.')
     print(help_text, flush=True)
     if gate is not None:

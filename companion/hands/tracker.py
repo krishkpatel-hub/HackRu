@@ -71,7 +71,7 @@ def run_hand_tracker(
     stop_event: threading.Event,
     config: Optional[Mapping[str, Any]] = None,
 ) -> None:
-    """Track one hand until ``stop_event`` is set. Blocks; emits README hand events via ``emit``.
+    """Track until ``stop_event``; emit legacy events or coherent anatomical observations.
 
     Raises RuntimeError / FileNotFoundError on setup failure (camera, model) *before* emitting
     anything, and RuntimeError if the camera keeps failing. Camera, landmarker and preview window
@@ -86,8 +86,8 @@ def run_hand_tracker(
     landmarker = _make_landmarker(cfg)
     cap = None
     engine = HandEngine(cfg)
-    from .roles import Roles, pose
-    roles = Roles(cfg.manipulator_hand) if cfg.two_hands else None
+    from .observations import TwoHandObservations
+    observations = TwoHandObservations(cfg) if cfg.two_hands else None
     try:
         cap = _open_camera(cfg)
         t0 = time.monotonic()
@@ -101,8 +101,11 @@ def run_hand_tracker(
                 fail_since = fail_since or now
                 if now - fail_since > cfg.camera_fail_timeout_s:
                     raise RuntimeError("camera stopped delivering frames")
-                for ev in engine.update(now - t0, None):  # keep loss/cancel timing alive
-                    emit(ev)
+                if observations is not None:
+                    emit(observations.update(now - t0, []))
+                else:
+                    for ev in engine.update(now - t0, None):  # keep loss/cancel timing alive
+                        emit(ev)
                 stop_event.wait(0.01)
                 continue
             fail_since = None
@@ -111,15 +114,16 @@ def run_hand_tracker(
             ts_ms = max(int((now - t0) * 1000), last_ts_ms + 1)
             last_ts_ms = ts_ms
             h, w = frame.shape[:2]
-            if roles is not None:
-                landmarks, selector = roles.update(detect_hands(landmarker, frame, ts_ms), now-t0, engine.pinching)
-                emit({'type':'selector_frame', 'payload':dict(
-                    pose=pose(selector, w/h) if selector is not None else 'ABSENT',
-                    manipulator=roles.manipulator, selector=roles.selector)})
+            if observations is not None:
+                emit(observations.update(now-t0, detect_hands(landmarker, frame, ts_ms), aspect=w/h))
+                # Standalone preview is diagnostic only; the worker never opens a GUI.
+                identity = 'Left' if 'Left' in observations.landmarks else 'Right'
+                landmarks = observations.landmarks.get(identity)
+                engine = observations.engines[identity]
             else:
                 landmarks = detect_landmarks(landmarker, frame, ts_ms)
-            for ev in engine.update(now - t0, landmarks, aspect=w / h):
-                emit(ev)
+                for ev in engine.update(now - t0, landmarks, aspect=w / h):
+                    emit(ev)
 
             dt = now - fps_t
             if dt > 0:
@@ -130,8 +134,13 @@ def run_hand_tracker(
                     stop_event.set()
     finally:
         try:
-            for ev in engine.shutdown():
-                emit(ev)
+            if observations is not None:
+                ev = observations.shutdown()
+                if ev is not None:
+                    emit(ev)
+            else:
+                for ev in engine.shutdown():
+                    emit(ev)
         finally:
             if cap is not None:
                 cap.release()

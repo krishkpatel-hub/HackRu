@@ -22,11 +22,15 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         box = layout.box()
         state, message, error, running = bridge.ui_state()
         box.label(text=f"Bridge: {state}")
-        box.label(text="Pinch, drag, release")
+        box.label(text="Select → establish intent → release")
         if bridge._runtime is not None:
-            box.label(text=bridge._runtime.mode_label())
-            if bridge._runtime.mode == "EXTRUDE":
+            for line in textwrap.wrap(bridge._runtime.mode_label(), width=40):
+                box.label(text=line)
+            if bridge._runtime.mode == "EXTRUDE" or bridge._runtime.phase == "SELECTED_READY":
                 for line in textwrap.wrap(bridge._runtime.target_message, width=40):
+                    box.label(text=line)
+            if bridge._runtime.hand_status:
+                for line in textwrap.wrap(bridge._runtime.hand_status, width=40):
                     box.label(text=line)
             box.label(text=f"Phase: {bridge._runtime.phase}")
             box.label(text=f"Hover: {bridge._runtime.hovered or '—'}")
@@ -45,5 +49,19 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         if values.mode in ('ROTATE','MOVE'):
             precision.prop(values, 'axis')
         precision.prop(values, {'ROTATE':'angle','MOVE':'distance','SCALE':'factor','EXTRUDE':'extrusion'}[values.mode])
+        if values.mode == 'EXTRUDE':
+            precision.prop(values, 'plane')
+            precision.prop(values, 'plane_axis')
+            precision.label(text='Fixed distance uses outward face normal')
+        precision.operator('air_modeler.arm_gesture')
         precision.operator('air_modeler.precision_apply', text='Arm Next Face Pinch' if values.mode == 'EXTRUDE' else 'Apply to Selected Object')
         precision.operator('air_modeler.precision_reset')
+
+        tuning = layout.box()
+        tuning.enabled = not bridge.dragging()
+        tuning.label(text='Intent thresholds (captured at selection)')
+        for key in ('move_threshold','twist_threshold','aperture_threshold','intent_persistence'):
+            tuning.prop(values, key)
+        row = layout.row(align=True)
+        row.operator('air_modeler.cancel')
+        row.operator('air_modeler.undo')

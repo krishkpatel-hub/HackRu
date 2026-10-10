@@ -103,8 +103,10 @@ def commit_precision(context, payload):
         raise RuntimeError('Target transform must be finite')
     final = precise_matrix(baseline, payload['mode'], payload.get('axis','Z'), payload['value'])
     if not changed(baseline, final, CONFIG.matrix_tolerance):
-        return
+        return False
     result = bpy.ops.air_modeler.commit_transform('EXEC_DEFAULT', True, target_name=name,
                                                 matrix=flatten(final), scale_signs=signs)
     if result != {'FINISHED'}:
         raise RuntimeError('Precision transform commit failed')
+
+    return True

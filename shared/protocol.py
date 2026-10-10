@@ -15,7 +15,8 @@ MAX_OUTBOX = 65536
 MAX_COMMAND_IDS = 4096
 SHAPES = ("cube", "sphere", "cylinder", "prism")
 MODES = ("MOVE", "ROTATE", "SCALE", "EXTRUDE")
-INPUT_TYPES = ("command", "hand_frame", "gesture_start", "gesture_end", "gesture_cancel", "selector_frame")
+PLANES = ("AUTO", "XY", "XZ", "YZ")
+INPUT_TYPES = ("command", "hand_frame", "gesture_start", "gesture_end", "gesture_cancel", "selector_frame", "hands_frame")
 
 
 class ProtocolError(ValueError):
@@ -69,10 +70,80 @@ def validate_precision(payload):
     if 'axis' in payload:
         require(payload['axis'] in ('X','Y','Z'), "Invalid world axis")
     value = payload['value']
-    require(type(value) in (int,float) and math.isfinite(value), "Precision value must be finite")
+    require(finite_number(value), "Precision value must be finite")
     bounds = {'MOVE':(-100,100), 'ROTATE':(-360,360), 'SCALE':(.1,10), 'EXTRUDE':(.00001,4)}
     low, high = bounds[mode]
     require(low <= value <= high and (mode != 'EXTRUDE' or value > low), "Precision value outside supported bounds")
+
+
+def validate_mode(payload):
+    """Validate a staged one-operation override, without inventing defaults."""
+    keys(payload, ("id", "action", "mode"), ("axis", "plane"))
+    mode = payload["mode"]
+    require(mode in MODES, "Invalid mode")
+    if mode == "EXTRUDE":
+        plane, axis = payload.get("plane", "AUTO"), payload.get("axis", "NONE")
+        require(plane in PLANES, "Invalid extrusion plane")
+        require(axis in ("NONE", "X", "Y", "Z"), "Invalid extrusion axis")
+        require(plane == "AUTO" or axis == "NONE" or axis in plane,
+                "Extrusion axis must belong to its mapping plane")
+    else:
+        require("plane" not in payload, "Only EXTRUDE accepts a plane")
+        require("axis" not in payload or mode == "ROTATE", "Only ROTATE/EXTRUDE accept an axis")
+        if "axis" in payload:
+            require(payload["axis"] in ("X", "Y", "Z"), "Invalid rotation axis")
+
+
+def finite_number(value):
+    """Reject booleans and excessively large JSON integers without overflowing."""
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def validate_hand_observation(observation):
+    keys(observation, ("valid", "confidence", "u", "v", "palm_u", "palm_v",
+                       "pinching", "open", "gesture_id", "event", "grip",
+                       "angle", "aperture", "open_palm"))
+    for flag in ("valid", "pinching", "open", "grip", "open_palm"):
+        require(type(observation[flag]) is bool, "Hand observation flags must be booleans")
+    confidence = observation["confidence"]
+    require(finite_number(confidence) and 0 <= confidence <= 1, "Invalid handedness confidence")
+    for field in ("u", "v", "palm_u", "palm_v"):
+        value = observation[field]
+        if observation["valid"]:
+            require(finite_number(value) and 0 <= value <= 1, "Visible hand coordinates must be finite and within 0–1")
+        else:
+            require(value is None, "Invalid hand coordinates must be null")
+    if not observation["valid"]:
+        require(confidence == 0 and not any(observation[k] for k in ("pinching", "open", "grip", "open_palm")),
+                "Invalid observations cannot imply a pose or observed release")
+    require(not (observation["pinching"] and observation["open"]), "A pinching hand cannot be observed open")
+    require(not (observation["grip"] and observation["open_palm"]), "Grip and open palm are exclusive poses")
+    if observation["grip"]:
+        require(finite_number(observation["angle"]) and -math.pi <= observation["angle"] <= math.pi,
+                "Grip angle must be finite radians within ±pi")
+        require(finite_number(observation["aperture"]) and 0.03 <= observation["aperture"] <= 10,
+                "Grip aperture must be between 0.03 and 10 palm widths")
+    else:
+        require(observation["angle"] is None and observation["aperture"] is None,
+                "Grip measurements must be null without a valid grip")
+    event, identifier = observation["event"], observation["gesture_id"]
+    require(event in ("NONE", "START", "END", "CANCEL"), "Invalid hand boundary event")
+    if event != "NONE" or observation["pinching"]:
+        uuid(identifier)
+    else:
+        require(identifier is None, "Inactive observations cannot carry gesture IDs")
+    if event == "START":
+        require(observation["valid"] and observation["pinching"], "START requires an observed pinch")
+    elif event == "END":
+        require(observation["valid"] and observation["open"] and not observation["pinching"],
+                "END requires an observed release")
+    elif event == "CANCEL":
+        require(not observation["pinching"], "CANCEL cannot retain an active pinch")
 
 
 def validate_event(event):
@@ -92,14 +163,19 @@ def validate_event(event):
         elif action == "precision":
             validate_precision(payload)
         elif action == "set_mode":
-            keys(payload, ("id", "action", "mode"), ("axis",))
-            require(payload["mode"] in MODES, "Invalid mode")
-            require("axis" not in payload or payload["mode"] == "ROTATE", "Only ROTATE accepts an axis")
-            require(payload.get("axis", "Z") in ("X", "Y", "Z"), "Invalid rotation axis")
+            validate_mode(payload)
         else:
             require(action in ("cancel", "undo"), "Unknown command action")
             keys(payload, ("id", "action"))
         uuid(payload["id"])
+    elif kind == "hands_frame":
+        keys(payload, ("frame_id", "t", "hands"))
+        require(type(payload["frame_id"]) is int and 1 <= payload["frame_id"] <= 2**53 - 1,
+                "Invalid capture frame ID")
+        require(finite_number(payload["t"]) and payload["t"] >= 0, "Invalid capture elapsed time")
+        keys(payload["hands"], ("Left", "Right"))
+        for observation in payload["hands"].values():
+            validate_hand_observation(observation)
     elif kind == "selector_frame":
         keys(payload, ('pose','manipulator','selector'))
         require(payload['pose'] in ('FIST','TWO','THREE','OPEN','UNKNOWN','ABSENT'), "Invalid selector pose")
@@ -120,7 +196,7 @@ def validate_event(event):
     elif kind == "status":
         keys(payload, ("mode", "phase", "selected_object", "hovered_object", "tracking", "last_error"))
         require(payload["mode"] in MODES, "Invalid status mode")
-        require(payload["phase"] in ("IDLE", "DRAGGING", "NEEDS_RELEASE"), "Invalid phase")
+        require(payload["phase"] in ("IDLE", "SELECTED_READY", "DRAGGING", "NEEDS_RELEASE"), "Invalid phase")
         for field in ("selected_object", "hovered_object", "last_error"):
             text(payload[field], nullable=True)
         require(type(payload["tracking"]) is bool, "Tracking must be a boolean")

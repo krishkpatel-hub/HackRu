@@ -4,7 +4,7 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNTIME_FILES = ("__init__.py", "primitives.py", "operators.py", "panel.py", "bridge.py", "viewport.py", "transforms.py", "extrusion.py", "selection.py")
+RUNTIME_FILES = ("__init__.py", "primitives.py", "operators.py", "panel.py", "bridge.py", "viewport.py", "transforms.py", "extrusion.py", "selection.py", "intent.py", "planes.py")
 
 
 def main():

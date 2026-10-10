@@ -106,9 +106,11 @@ def finite_number(value):
 
 def validate_hand_observation(observation):
     keys(observation, ("valid", "confidence", "u", "v", "palm_u", "palm_v",
-                       "pinching", "open", "gesture_id", "event", "grip",
-                       "angle", "aperture", "open_palm"))
-    for flag in ("valid", "pinching", "open", "grip", "open_palm"):
+                       "pinching", "open", "gesture_id", "event", "shape_valid",
+                       "shape_error", "angle", "openness", "open_palm",
+                       "extrude_pose", "pinch_pending"))
+    flags = ("valid", "pinching", "open", "shape_valid", "open_palm", "extrude_pose", "pinch_pending")
+    for flag in flags:
         require(type(observation[flag]) is bool, "Hand observation flags must be booleans")
     confidence = observation["confidence"]
     require(finite_number(confidence) and 0 <= confidence <= 1, "Invalid handedness confidence")
@@ -119,18 +121,23 @@ def validate_hand_observation(observation):
         else:
             require(value is None, "Invalid hand coordinates must be null")
     if not observation["valid"]:
-        require(confidence == 0 and not any(observation[k] for k in ("pinching", "open", "grip", "open_palm")),
+        require(confidence == 0 and not any(observation[k] for k in flags[1:]),
                 "Invalid observations cannot imply a pose or observed release")
     require(not (observation["pinching"] and observation["open"]), "A pinching hand cannot be observed open")
-    require(not (observation["grip"] and observation["open_palm"]), "Grip and open palm are exclusive poses")
-    if observation["grip"]:
-        require(finite_number(observation["angle"]) and -math.pi <= observation["angle"] <= math.pi,
-                "Grip angle must be finite radians within ±pi")
-        require(finite_number(observation["aperture"]) and 0.03 <= observation["aperture"] <= 10,
-                "Grip aperture must be between 0.03 and 10 palm widths")
+    text(observation['shape_error'], nullable=True)
+    if observation['shape_valid']:
+        require(observation['shape_error'] is None, "Valid measurements cannot carry a shape error")
+        require(finite_number(observation['angle']) and -math.pi <= observation['angle'] <= math.pi,
+                "Palm angle must be finite radians within ±pi")
+        require(finite_number(observation['openness']) and 0 <= observation['openness'] <= 1,
+                "Whole-hand openness must be finite within 0–1")
     else:
-        require(observation["angle"] is None and observation["aperture"] is None,
-                "Grip measurements must be null without a valid grip")
+        require(observation['angle'] is None and observation['openness'] is None
+                and not any(observation[k] for k in ('open_palm','extrude_pose','pinch_pending')),
+                "Invalid shape measurements must be null and cannot authorize poses")
+        require(bool(observation['shape_error']), "Invalid shape needs readable feedback")
+    require(not observation['pinch_pending'] or observation['extrude_pose'],
+            "Extrusion pinch approach requires remaining open fingers")
     event, identifier = observation["event"], observation["gesture_id"]
     require(event in ("NONE", "START", "END", "CANCEL"), "Invalid hand boundary event")
     if event != "NONE" or observation["pinching"]:
@@ -169,7 +176,8 @@ def validate_event(event):
             keys(payload, ("id", "action"))
         uuid(payload["id"])
     elif kind == "hands_frame":
-        keys(payload, ("frame_id", "t", "hands"))
+        keys(payload, ("profile", "frame_id", "t", "hands"))
+        require(payload["profile"] == "left_clutch_v2", "Unsupported hand controls; install matching 0.8 companion/add-on")
         require(type(payload["frame_id"]) is int and 1 <= payload["frame_id"] <= 2**53 - 1,
                 "Invalid capture frame ID")
         require(finite_number(payload["t"]) and payload["t"] >= 0, "Invalid capture elapsed time")

@@ -102,53 +102,68 @@ class HandIdentities:
         return accepted
 
 
-def manipulation_features(points, aspect=1.0):
-    """Return thumb/index/middle grip, 2D palm angle, aperture, and open palm.
+def manipulation_features(points, aspect=1.0, previous=None, config=None):
+    """Whole-finger flexion and palm twist, invariant to image-plane scale/rotation.
 
-    Angle is atan2(-dy, dx) of wrist→middle MCP in aspect-correct image units.
-    Aperture is mean pairwise tip distance for 4/8/12 divided by palm size.
-    Neither uses landmark z. Ring/pinky must be folded for a grip. Thumb must
-    participate; index/middle may spread without being mistaken for release.
+    Each of index/middle/ring/pinky contributes PIP/DIP flexion and tip reach
+    normalized by palm size. This is not the old three-tip aperture. A fist is
+    a valid low-openness shape. No landmark z is used as camera depth.
     """
-    empty = dict(grip=False, angle=None, aperture=None, open_palm=False)
+    from .config import HandConfig
+    cfg = config or HandConfig()
+    previous = previous or {}
+    empty = dict(shape_valid=False, shape_error='Degenerate whole-hand landmarks',
+                 angle=None, openness=None, open_palm=False,
+                 extrude_pose=False, pinch_pending=False)
     if not _points_valid(points) or not math.isfinite(aspect) or aspect <= 0:
         return empty
     def p(i):
-        return points[i][0] * aspect, points[i][1]
-    def distance(a, b):
-        return math.dist(p(a), p(b))
-    def angle(a, b, c):
-        x, y, z = p(a), p(b), p(c)
-        u, v = (x[0]-y[0], x[1]-y[1]), (z[0]-y[0], z[1]-y[1])
-        size = math.hypot(*u) * math.hypot(*v)
-        if size <= 1e-8:
+        return points[i][0]*aspect, points[i][1]
+    def distance(a,b):
+        return math.dist(p(a),p(b))
+    def angle(a,b,c):
+        x,y,z = p(a),p(b),p(c)
+        u,v = (x[0]-y[0],x[1]-y[1]),(z[0]-y[0],z[1]-y[1])
+        length = math.hypot(*u)*math.hypot(*v)
+        if length <= 1e-10:
             return float('nan')
-        return math.degrees(math.acos(max(-1, min(1, sum(a*b for a,b in zip(u,v))/size))))
-    palm = max(distance(0, 9), distance(5, 17))
-    orient = ((points[9][0]-points[0][0])*aspect, points[0][1]-points[9][1])
-    if palm < 1e-4 or math.hypot(*orient) < palm * .25:
+        return math.degrees(math.acos(max(-1,min(1,sum(a*b for a,b in zip(u,v))/length))))
+    def clamp(value):
+        return max(0.,min(1.,value))
+    palm = max(distance(0,9),distance(5,17))
+    orient = ((points[9][0]-points[0][0])*aspect,points[0][1]-points[9][1])
+    if palm < 1e-4 or math.hypot(*orient) < .25*palm:
         return empty
-    extended, folded = [], []
-    for mcp in (5, 9, 13, 17):
-        pip, dip, tip = mcp+1, mcp+2, mcp+3
-        extended.append(angle(mcp,pip,dip) >= 135 and angle(pip,dip,tip) >= 135
-                        and distance(tip,0) >= 1.05*distance(pip,0))
-        folded.append(angle(mcp,pip,dip) <= 115 and distance(tip,0) <= 1.1*distance(pip,0))
-    thumb = (angle(2,3,4) >= 125 and distance(4,1) >= 1.05*distance(3,1)
-             and distance(4,0) >= .65*palm)
-    open_palm = bool(thumb and all(extended))
-    grip = bool(thumb and extended[0] and extended[1] and folded[2] and folded[3])
-    aperture = sum(distance(a,b) for a,b in ((4,8),(8,12),(12,4))) / (3*palm)
-    if not grip or not .03 <= aperture <= 10 or not math.isfinite(aperture):
-        return dict(empty, open_palm=open_palm)
-    return dict(grip=True, angle=math.atan2(orient[1],orient[0]),
-                aperture=aperture, open_palm=False)
+    fingers = []
+    for mcp in (5,9,13,17):
+        angles = angle(mcp,mcp+1,mcp+2),angle(mcp+1,mcp+2,mcp+3)
+        if not all(math.isfinite(value) for value in angles):
+            return empty
+        bend = min(angles)
+        flexion = clamp((bend-50)/110)
+        reach = clamp((distance(mcp,mcp+3)/palm-.15)/1.2)
+        fingers.append(.7*flexion+.3*reach)
+    thumb_angle = angle(2,3,4)
+    if not math.isfinite(thumb_angle):
+        return empty
+    open_cutoff = cfg.finger_open_exit if previous.get('open_palm') else cfg.finger_open_enter
+    thumb_open = thumb_angle >= (115 if previous.get('open_palm') else 125) and distance(4,0) >= .65*palm
+    open_palm = thumb_open and min(fingers) >= open_cutoff
+    extrude_cutoff = cfg.finger_open_exit if previous.get('extrude_pose') else cfg.finger_open_enter
+    extrude_pose = sorted(fingers[1:],reverse=True)[1] >= extrude_cutoff
+    ratio = distance(4,8)/palm
+    return dict(shape_valid=True, shape_error=None,
+                angle=math.atan2(orient[1],orient[0]), openness=sum(fingers)/4,
+                open_palm=bool(open_palm), extrude_pose=bool(extrude_pose),
+                pinch_pending=bool(extrude_pose and ratio <= cfg.pinch_approach))
 
 
 def absent_observation(event='NONE', gesture_id=None):
     return dict(valid=False, confidence=0.0, u=None, v=None, palm_u=None, palm_v=None,
                 pinching=False, open=False, gesture_id=gesture_id, event=event,
-                grip=False, angle=None, aperture=None, open_palm=False)
+                shape_valid=False, shape_error='Hand absent or identity uncertain',
+                angle=None, openness=None, open_palm=False,
+                extrude_pose=False, pinch_pending=False)
 
 
 class TwoHandObservations:
@@ -159,6 +174,7 @@ class TwoHandObservations:
         self.identities = HandIdentities(config)
         self.engines = {identity: HandEngine(config) for identity in IDENTITIES}
         self.open_since = {identity: None for identity in IDENTITIES}
+        self.shapes = {identity: {} for identity in IDENTITIES}
         self.frame_id = 0
         self.last_t = 0.0
         self.landmarks = {}
@@ -166,11 +182,11 @@ class TwoHandObservations:
     def _frame(self, t, hands):
         self.frame_id += 1
         self.last_t = t
-        return dict(type='hands_frame', payload=dict(frame_id=self.frame_id, t=t, hands=hands))
+        return dict(type='hands_frame', payload=dict(profile='left_clutch_v2', frame_id=self.frame_id, t=t, hands=hands))
 
     def update(self, t, detections, aspect=4/3):
         protected = {identity: engine.pinching for identity, engine in self.engines.items()}
-        # A wide three-finger grip/open palm need not have an active ordinary
+        # A whole-hand controller need not have an active ordinary
         # pinch UUID. Keep its identity anchor locked while a left clutch could
         # require it, so an uncertain right hand cannot relocate and recover as
         # another path before Blender's required-hand timeout expires.
@@ -188,6 +204,7 @@ class TwoHandObservations:
             gid = transition['payload']['gesture_id'] if transition else engine.gesture_id
             if not valid:
                 self.open_since[identity] = None
+                self.shapes[identity] = {}
                 hands[identity] = absent_observation(event, gid if event == 'CANCEL' else None)
                 continue
             if engine.ratio >= self.cfg.pinch_release:
@@ -200,10 +217,12 @@ class TwoHandObservations:
                              and t-since >= self.cfg.pinch_stable_ms/1000)
             uv = (transition['payload']['u'],transition['payload']['v']) if event == 'END' else engine.cursor
             palm = engine._smooth_palm
+            features = manipulation_features(points,aspect,self.shapes[identity],self.cfg)
+            self.shapes[identity] = features
             hands[identity] = dict(valid=True, confidence=float(score), u=uv[0], v=uv[1],
                 palm_u=max(0.,min(1.,palm[0])), palm_v=max(0.,min(1.,palm[1])),
                 pinching=engine.pinching, open=bool(observed_open or event == 'END'),
-                gesture_id=gid, event=event, **manipulation_features(points,aspect))
+                gesture_id=gid, event=event, **features)
         return self._frame(t, hands)
 
     def shutdown(self):

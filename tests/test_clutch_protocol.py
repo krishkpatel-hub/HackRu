@@ -13,18 +13,18 @@ from shared.protocol import ProtocolError, Session, decode, encode, validate_eve
 def observation(**changes):
     result = dict(valid=True, confidence=.99, u=.4, v=.6, palm_u=.45, palm_v=.65,
                   pinching=False, open=True, gesture_id=None, event="NONE",
-                  grip=False, angle=None, aperture=None, open_palm=False)
+                  shape_valid=True, shape_error=None, angle=0., openness=1., open_palm=True, extrude_pose=True, pinch_pending=False)
     result.update(changes)
     return result
 
 
 def missing(**changes):
     return observation(valid=False, confidence=0, u=None, v=None, palm_u=None,
-                       palm_v=None, open=False, **changes)
+                       palm_v=None, open=False, shape_valid=False, shape_error='Missing hand', angle=None, openness=None, open_palm=False, extrude_pose=False, **changes)
 
 
 def frame(left=None, right=None, **changes):
-    payload = dict(frame_id=1, t=0., hands=dict(Left=left or observation(), Right=right or missing()))
+    payload = dict(profile='left_clutch_v2', frame_id=1, t=0., hands=dict(Left=left or observation(), Right=right or missing()))
     payload.update(changes)
     return dict(type="hands_frame", payload=payload)
 
@@ -46,8 +46,7 @@ def test_atomic_capture_survives_wire_roundtrip_with_two_independent_ids():
     assert len(encoded) < 8192
     received, response = client.accept(decode(encoded))
     assert received == original and event == original and response is None
-    # The consumer arbitrates these simultaneous attempts; the schema does not
-    # turn either anatomical hand into a fixed selector/manipulator role.
+    # Independent pinch UUIDs carry Left selection and Right extrusion boundaries.
     assert received["payload"]["hands"]["Left"]["gesture_id"] != right_id
 
 
@@ -61,13 +60,10 @@ def test_observed_release_and_loss_cancel_are_distinct():
         validate_event(frame(missing(event="END", gesture_id=identifier)))
 
 
-def test_scale_aperture_does_not_define_selecting_hand_release():
-    identifier = str(uuid4())
-    # A right manipulation grip may be geometrically open in thumb/index terms;
-    # the left clutch UUID remains authoritative for commit.
-    left = observation(pinching=True, open=False, gesture_id=identifier)
-    for aperture in (.1, .3, 1., 2., 10.):
-        validate_event(frame(left, observation(grip=True, angle=math.pi, aperture=aperture)))
+def test_whole_fist_openness_is_valid_without_extrusion_pose():
+    left = observation(pinching=True, open=False, gesture_id=str(uuid4()))
+    for openness in (0., .01, .2, .5, 1.):
+        validate_event(frame(left, observation(openness=openness, open_palm=False, extrude_pose=False)))
 
 
 @pytest.mark.parametrize("change", [
@@ -77,16 +73,11 @@ def test_scale_aperture_does_not_define_selecting_hand_release():
     dict(gesture_id=str(uuid4())), dict(event="START"),
     dict(event="END"), dict(event="RELEASE"),
     dict(pinching=True, open=True, gesture_id=str(uuid4())),
-    dict(pinching=True, open=False), dict(angle=0), dict(aperture=.2),
-    dict(grip=True, angle=None, aperture=.2),
-    dict(grip=True, angle=0, aperture=0),
-    dict(grip=True, angle=0, aperture=5e-324),
-    dict(grip=True, angle=0, aperture=.029),
-    dict(grip=True, angle=0, aperture=10.1),
-    dict(grip=True, angle=math.pi+.001, aperture=1),
-    dict(grip=True, angle=float("nan"), aperture=1),
-    dict(grip=True, angle=0, aperture=True),
-    dict(grip=True, angle=0, aperture=1, open_palm=True),
+    dict(pinching=True, open=False), dict(angle=None), dict(openness=None),
+    dict(angle=math.pi+.001), dict(angle=float('nan')), dict(angle=True),
+    dict(openness=-.01), dict(openness=1.01), dict(openness=True),
+    dict(openness=float('nan')), dict(shape_valid=False), dict(shape_error='bad'),
+    dict(pinch_pending=True, extrude_pose=False), dict(grip=True), dict(aperture=1),
     dict(event="CANCEL", pinching=True, open=False, gesture_id=str(uuid4())),
     dict(extra="unrecognized"),
 ])
@@ -97,7 +88,8 @@ def test_rejects_malformed_observations(change):
 
 @pytest.mark.parametrize("field,value", [
     ("confidence", .8), ("u", .4), ("open", True), ("pinching", True),
-    ("grip", True), ("open_palm", True), ("angle", 0), ("aperture", 1),
+    ("shape_valid", True), ("open_palm", True), ("angle", 0), ("openness", 1),
+    ("extrude_pose", True), ("pinch_pending", True),
 ])
 def test_invalid_observation_cannot_imply_presence_or_release(field, value):
     hand = missing()
@@ -107,7 +99,7 @@ def test_invalid_observation_cannot_imply_presence_or_release(field, value):
 
 
 @pytest.mark.parametrize("change", [
-    dict(frame_id=0), dict(frame_id=True), dict(frame_id=1.2), dict(frame_id=2**53),
+    dict(profile='either_hand_v1'), dict(profile=None), dict(frame_id=0), dict(frame_id=True), dict(frame_id=1.2), dict(frame_id=2**53),
     dict(t=True), dict(t=-.001), dict(t=float("nan")), dict(t=float("inf")),
     dict(t=10**1000), dict(hands={"Left": observation()}),
     dict(hands={"Left": observation(), "Right": missing(), "Unknown": missing()}),

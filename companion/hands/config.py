@@ -33,6 +33,10 @@ class HandConfig:
     identity_max_step: float = 0.18
     identity_separation: float = 0.12
 
+    # Whole-hand open/isolated-pinch pose hysteresis.
+    finger_open_enter: float = .72
+    finger_open_exit: float = .60
+
     # Output
     emit_hz: float = 30.0
 
@@ -84,6 +88,8 @@ class HandConfig:
             raise ValueError("identity settings must be finite numbers")
         if not .5 <= self.identity_confidence <= 1 or min(identity_values[1:]) <= 0:
             raise ValueError("identity confidence must be .5–1 and identity windows/distances positive")
+        if not 0 < self.finger_open_exit < self.finger_open_enter <= 1:
+            raise ValueError("need 0 < finger_open_exit < finger_open_enter <= 1")
         if not 0.0 <= self.smoothing < 1.0:
             raise ValueError("smoothing must be in [0, 1)")
         if not 0.0 < self.pinch_start < self.pinch_release:

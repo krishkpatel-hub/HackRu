@@ -400,12 +400,15 @@ class Client:
         values = self.wm.air_modeler_precision
         return replace(intent.CONFIG, move_threshold=values.move_threshold,
                        twist_threshold=math.radians(values.twist_threshold),
-                       aperture_threshold=values.aperture_threshold,
-                       persistence=values.intent_persistence)
+                       openness_threshold=values.openness_threshold,
+                       persistence=values.intent_persistence,
+                       dominance=values.intent_dominance, hysteresis=values.intent_hysteresis)
 
     def select_hand(self, owner, observation, right, now):
-        """Acquire once at the corrected START cursor, without preview mutation."""
+        """Only Left's corrected START selects. Its later coordinates are inert."""
         global _message, _last_error
+        if owner != 'Left':
+            raise RuntimeError('Only the Left selection clutch can acquire a target')
         context = self.context()
         with bpy.context.temp_override(**context):
             if bpy.context.mode != 'OBJECT':
@@ -415,176 +418,171 @@ class Client:
         hit, rejected = viewport.pick(context, view, uv)
         self.cursor, self.tracking = uv, True
         if hit is None:
-            self.release_hands = {owner}
+            self.release_hands = {'Left'}
             self.cancel_drag(preserve_mode=True)
-            raise RuntimeError('Unsupported target' if rejected else 'Pinch missed; open the selecting hand before retrying')
+            raise RuntimeError('Unsupported target' if rejected else 'Pinch missed; release Left before retrying')
         obj, point = hit
         face_hit, face_error = viewport.pick_extrusion(context, view, uv)
         if face_hit and face_hit[0] != obj:
             face_hit = None
         normal = view[1].view_matrix.inverted().col[2].xyz.normalized()
-        grab = viewport.plane_point(view, uv, point, normal)
-        if grab is None:
-            raise RuntimeError('Cannot map this viewport selection')
         for selected in context['view_layer'].objects:
             if selected.select_get():
                 selected.select_set(False)
         obj.select_set(True)
         context['view_layer'].objects.active = obj
         cfg = self.selection_config()
-        self.drag = SimpleNamespace(identifier=observation['gesture_id'], owner=owner,
+        self.drag = SimpleNamespace(identifier=observation['gesture_id'], owner='Left',
             target_id=obj.session_uid, baseline=obj.matrix_world.copy(), scale_signs=tuple(obj.scale),
             source_mesh=obj.data, view=view, mode=None, axis=self.axis, start=uv, fixed_distance=self.fixed_distance,
-            geometry=None, config=transforms.CONFIG, amount=0.0, point=point, normal=normal, grab=grab,
-            max_delta=max(100, (point - viewport.ray(view, uv)[0]).length * 10),
+            geometry=None, config=transforms.CONFIG, amount=0., point=point, normal=normal, grab=None,
+            max_delta=max(100, (point-viewport.ray(view,uv)[0]).length*10),
             face_index=face_hit[2] if face_hit else None, face_error=face_error,
-            intent=intent.Intent(uv, cfg), intent_config=cfg, required={owner}, lost_since=None,
-            recovered=False, valid_preview=True, plane=None, last_right=None,
+            intent=intent.Intent(cfg), intent_config=cfg, required={'Left','Right'}, lost_since=None,
+            valid_preview=True, plane=None, right_id=None, last_right=None,
             plane_name=self.plane, plane_axis=self.plane_axis, override=self.mode if self.override else None)
         self.face_outline = face_hit[3] if face_hit else ()
-        self.target_message = f'Locked face {face_hit[2]}' if face_hit else (face_error or 'No eligible extrusion face')
+        self.target_message = f'{obj.name}; locked face {face_hit[2]}' if face_hit else f'{obj.name}; extrusion unavailable: {face_error or "no eligible face"}'
         self.hovered = obj.name
         self.phase = 'SELECTED_READY'
-        self.drag.intent.update(now, uv, right, left_owner=owner == 'Left', override=self.drag.override)
-        self.source = f'{owner} selection clutch'
+        self.drag.intent.update(now,right,override=self.drag.override)
+        self.source = 'Left clutch / Right whole hand'
         _last_error = None
-        _message = 'Selected. Move owner, twist/spread right grip, or move right open palm.'
+        _message = intent.PROMPT
 
-    def lock_operation(self, mode, owner, right):
+    def lock_operation(self, mode, right):
         global _message, _last_error
-        drag = self.drag
-        obj = self.target()
+        drag, obj = self.drag, self.target()
         drag.mode = self.mode = mode
-        drag.required = {drag.owner} if mode == 'MOVE' else {'Left', 'Right'}
         if mode == 'MOVE':
-            drag.start = owner['u'], owner['v']
-            drag.grab = viewport.plane_point(drag.view, drag.start, drag.point, drag.normal)
+            drag.start = right['palm_u'],right['palm_v']
+            drag.grab = viewport.plane_point(drag.view,drag.start,drag.point,drag.normal)
             if drag.grab is None:
-                raise RuntimeError('Cannot map owner motion in this view')
+                raise RuntimeError('Cannot map Right palm in this view')
         elif mode in ('ROTATE','SCALE'):
-            drag.reference_angle = drag.last_angle = right['angle']
-            drag.total_angle = 0.0
-            drag.reference_aperture = right['aperture']
-            drag.amount = 1.0 if mode == 'SCALE' else 0.0
+            drag.last_angle = right['angle']
+            drag.total_angle = 0.
+            drag.reference_openness = right['openness']
+            drag.amount = 1. if mode == 'SCALE' else 0.
         else:
             if drag.face_index is None:
-                raise RuntimeError(drag.face_error or 'Selection did not capture an eligible extrusion face')
-            drag.geometry = extrusion.Preview(obj, drag.face_index, extrusion.CONFIG)
+                raise RuntimeError(drag.face_error or 'Left selection captured no eligible extrusion face')
+            drag.right_id = drag.intent.pinch_id
+            drag.pinch_start = drag.intent.pinch_start
+            if drag.right_id is None:
+                raise RuntimeError('Extrusion requires a fresh isolated Right pinch')
+            drag.geometry = extrusion.Preview(obj,drag.face_index,extrusion.CONFIG)
             view_rotation = drag.view[1].view_matrix.inverted()
             drag.plane = planes.mapping(drag.geometry.world_normal,
-                view_rotation.col[0].xyz, view_rotation.col[1].xyz,
-                drag.plane_name, drag.plane_axis)
-            def direction_label(vector):
-                return next(('+' if x > 0 else '-') + 'XYZ'[i] for i,x in enumerate(vector) if x)
-            self.target_message = f'Locked face {drag.face_index}; screen right {direction_label(drag.plane.horizontal)}, screen up {direction_label(drag.plane.vertical)}'
-            drag.palm_reference = right['palm_u'], right['palm_v']
-            drag.palm_delta = (0.0, 0.0)
+                view_rotation.col[0].xyz,view_rotation.col[1].xyz,drag.plane_name,drag.plane_axis)
+            def label(vector):
+                return next(('+' if x > 0 else '-')+'XYZ'[i] for i,x in enumerate(vector) if x)
+            self.target_message = f'{obj.name}; locked face {drag.face_index}; screen right {label(drag.plane.horizontal)}, screen up {label(drag.plane.vertical)}'
+            # Corrected cursor already preserves pre-close aim/palm-relative motion.
+            # Rebase at activation to avoid a recognition-threshold jump.
+            drag.pinch_reference = right['u'],right['v']
+            drag.pinch_delta = (0.,0.)
             if drag.fixed_distance is not None:
                 drag.geometry.update(drag.fixed_distance)
                 drag.amount = drag.fixed_distance
             self.face_outline = drag.geometry.outline()
-        drag.last_right = dict(right) if mode != 'MOVE' else None
+        drag.last_right = dict(right)
         self.phase = 'DRAGGING'
         _last_error = None
-        _message = f'{mode} locked; release {drag.owner} to commit, Escape to cancel'
+        _message = f'{mode} locked; release Left'+(' or Right pinch' if mode == 'EXTRUDE' else '')+' to commit'
 
-    def preview_hands(self, owner, right, recovered=False):
-        """Baseline-relative updates; right-operation clutch motion is ignored."""
+    def preview_hands(self, right, recovered=False):
+        """All geometry input comes from Right; every result uses original baseline."""
         global _message, _last_error
         drag = self.drag
         if drag.mode == 'MOVE':
+            uv = right['palm_u'],right['palm_v']
             if recovered:
-                point = viewport.plane_point(drag.view, (owner['u'],owner['v']), drag.point, drag.normal)
+                point = viewport.plane_point(drag.view,uv,drag.point,drag.normal)
                 if point is None:
-                    raise RuntimeError('Cannot reanchor recovered MOVE')
-                drag.grab = point - (self.target().matrix_world.translation - drag.baseline.translation)
-            self.preview((owner['u'], owner['v']))
+                    raise RuntimeError('Cannot reanchor recovered Right palm')
+                drag.grab = point-(self.target().matrix_world.translation-drag.baseline.translation)
+            self.preview(uv)
+            drag.last_right = dict(right)
             return
         if recovered:
             if drag.mode == 'ROTATE':
                 drag.last_angle = right['angle']
             elif drag.mode == 'SCALE':
-                drag.reference_aperture = right['aperture'] / drag.amount
+                drag.reference_openness = right['openness']-math.log(drag.amount)/drag.intent_config.scale_sensitivity
             else:
-                drag.palm_reference = (right['palm_u'] - drag.palm_delta[0],
-                                       right['palm_v'] - drag.palm_delta[1])
+                drag.pinch_reference = right['u']-drag.pinch_delta[0],right['v']-drag.pinch_delta[1]
         obj = self.target()
         if drag.mode == 'ROTATE':
             from mathutils import Matrix
-            drag.total_angle += intent.angle_delta(right['angle'], drag.last_angle)
+            drag.total_angle += intent.angle_delta(right['angle'],drag.last_angle)
             drag.last_angle = right['angle']
-            drag.amount = drag.total_angle * drag.intent_config.rotation_sensitivity
-            final = Matrix.Rotation(drag.amount, 4, drag.axis) @ drag.baseline
+            drag.amount = drag.total_angle*drag.intent_config.rotation_sensitivity
+            final = Matrix.Rotation(drag.amount,4,drag.axis)@drag.baseline
             final.translation = drag.baseline.translation
-            transforms.apply_matrix(obj, final, drag.scale_signs)
+            transforms.apply_matrix(obj,final,drag.scale_signs)
         elif drag.mode == 'SCALE':
             from mathutils import Matrix
-            drag.amount = max(drag.config.scale_min, min(drag.config.scale_max,
-                              right['aperture'] / drag.reference_aperture))
-            final = Matrix.Scale(drag.amount, 4) @ drag.baseline
+            factor = math.exp(drag.intent_config.scale_sensitivity*(right['openness']-drag.reference_openness))
+            drag.amount = max(drag.config.scale_min,min(drag.config.scale_max,factor))
+            final = Matrix.Scale(drag.amount,4)@drag.baseline
             final.translation = drag.baseline.translation
-            transforms.apply_matrix(obj, final, drag.scale_signs)
+            transforms.apply_matrix(obj,final,drag.scale_signs)
         elif drag.fixed_distance is None:
-            delta = right['palm_u'] - drag.palm_reference[0], right['palm_v'] - drag.palm_reference[1]
-            vector = drag.plane.displacement(*delta)
+            delta = right['u']-drag.pinch_reference[0],right['v']-drag.pinch_reference[1]
             try:
-                drag.geometry.update_vector(vector)
+                drag.geometry.update_vector(drag.plane.displacement(*delta))
             except ValueError as exc:
                 drag.valid_preview = False
                 self.error(exc)
-                return  # Last valid mesh remains visible; invalid release cancels.
-            drag.palm_delta = delta
+                return
+            drag.pinch_delta = delta
             drag.amount = drag.geometry.amount
         drag.valid_preview = True
         drag.last_right = dict(right)
         self.face_outline = drag.geometry.outline() if drag.geometry else self.face_outline
         _last_error = None
-        _message = f'{drag.mode} locked; release {drag.owner} to commit'
+        _message = f'{drag.mode} locked; Left is selection only'
 
-    def finish_hand(self):
-        """Restore once, then use the existing native Undo helpers once."""
+    def finish_hand(self, hands):
+        """First coherent valid completion restores then commits once via native Undo."""
         global _message, _last_error, _needs_release, _release_hands
-        drag, obj = self.drag, self.target()
+        drag, obj = self.drag,self.target()
         operation = drag.mode
         if not drag.valid_preview:
             self.cancel_drag()
             raise RuntimeError('Invalid displacement on release; baseline restored')
-        name = obj.name
-        arguments = None
-        changed = False
+        name, arguments, changed = obj.name,None,False
         if operation == 'EXTRUDE':
             geometry = drag.geometry
             changed = geometry.outward_distance > geometry.config.negligible_distance
             if changed:
                 geometry.validate_result()
-                arguments = dict(target_name=name, face_index=geometry.face_index,
-                    vector=tuple(geometry.world_vector), use_vector=True,
+                arguments = dict(target_name=name,face_index=geometry.face_index,
+                    vector=tuple(geometry.world_vector),use_vector=True,
                     maximum_distance=geometry.config.maximum_distance,
                     negligible_distance=geometry.config.negligible_distance)
             geometry.restore(obj)
         elif operation:
             final = obj.matrix_world.copy()
-            changed = transforms.changed(drag.baseline, final, drag.config.matrix_tolerance)
-            transforms.apply_matrix(obj, drag.baseline, drag.scale_signs)
-            arguments = dict(target_name=name, matrix=transforms.flatten(final), scale_signs=drag.scale_signs)
+            changed = transforms.changed(drag.baseline,final,drag.config.matrix_tolerance)
+            transforms.apply_matrix(obj,drag.baseline,drag.scale_signs)
+            arguments = dict(target_name=name,matrix=transforms.flatten(final),scale_signs=drag.scale_signs)
+        required = {'Left','Right'} if operation == 'EXTRUDE' else {'Left'}
+        self.release_hands = {hand for hand in required if not (hands[hand]['valid'] and hands[hand]['open'])}
+        _release_hands = set(self.release_hands)
+        _needs_release = bool(self.release_hands)
         self.drag = None
         self.face_outline = ()
-        # The matching END is already an observed stable release, so it
-        # satisfies the success release gate in this same coherent frame.
-        # Requiring a second sighting would prevent the other hand moving alone
-        # when the completed owner immediately leaves the camera.
-        self.phase = 'IDLE'
-        self.release_hands.clear()
-        _release_hands.clear()
-        _needs_release = False
+        self.phase = 'NEEDS_RELEASE' if _needs_release else 'IDLE'
         self.completed_mode()
         if changed:
             with bpy.context.temp_override(**self.context()):
                 op = bpy.ops.air_modeler.commit_extrusion if operation == 'EXTRUDE' else bpy.ops.air_modeler.commit_transform
-                if op('EXEC_DEFAULT', True, **arguments) != {'FINISHED'}:
+                if op('EXEC_DEFAULT',True,**arguments) != {'FINISHED'}:
                     raise RuntimeError('Commit failed; baseline restored')
         _last_error = None
-        _message = f'{operation} committed' if changed else 'Selected; unchanged release creates no edit'
+        _message = (f'{operation} committed once' if changed else 'Unchanged release creates no edit') + ('; release '+', '.join(sorted(self.release_hands)) if self.release_hands else '')
 
     def hands_frame(self, payload):
         global _message, _needs_release, _release_hands
@@ -592,100 +590,108 @@ class Client:
         if payload['frame_id'] <= self.frame_id or payload['t'] <= self.frame_time:
             raise ValueError('Stale hand observation frame/time')
         if self.frame_origin is None:
-            self.frame_origin = now - payload['t']
-        if now - (self.frame_origin + payload['t']) > .5:
+            self.frame_origin = now-payload['t']
+        if now-(self.frame_origin+payload['t']) > .5:
             if self.drag:
                 self.cancel_drag()
             raise ValueError('Hand observation delivery is stale; release and reconnect')
-        self.frame_id, self.frame_time = payload['frame_id'], payload['t']
+        self.frame_id,self.frame_time = payload['frame_id'],payload['t']
         if not self.clutch and self.drag is not None:
-            self.cancel_drag()  # A stream-format switch cannot transfer a legacy preview.
+            self.cancel_drag()
         self.clutch = True
         self.selector.enabled = False
         self.last_input = now
         hands = payload['hands']
-        self.hand_status = ' | '.join(f"{hand}: " + ('uncertain/absent' if not obs['valid'] else 'grip' if obs['grip'] else 'open palm' if obs['open_palm'] else 'pinch' if obs['pinching'] else 'open' if obs['open'] else 'visible') for hand, obs in hands.items())
-        # Consume every START even if another hand owns the selection; no queued takeover.
-        starts = []
-        for hand in ('Left', 'Right'):
-            observation = hands[hand]
-            if observation['event'] == 'START' and observation['gesture_id'] not in self.seen_gestures:
+        left,right = hands['Left'],hands['Right']
+        def recognition(obs):
+            if not obs['valid']: return 'absent/uncertain'
+            if not obs['shape_valid']: return obs['shape_error']
+            pose = 'extrusion pinch' if obs['pinch_pending'] else 'open palm' if obs['open_palm'] else 'fist' if obs['openness'] < .25 else 'partly closed'
+            return f"{pose}; openness {obs['openness']:.2f}"
+        self.hand_status = 'Left clutch: '+('held' if left['valid'] and left['pinching'] else 'released' if left['valid'] and left['open'] else 'uncertain')+' | Right: '+recognition(right)
+        starts = set()
+        for hand in ('Left','Right'):
+            obs = hands[hand]
+            if obs['event'] == 'START' and obs['gesture_id'] not in self.seen_gestures:
                 if len(self.seen_gestures) >= 4096:
                     raise protocol.SessionFull('Gesture history full; reconnect')
-                self.seen_gestures.add(observation['gesture_id'])
-                starts.append(hand)
+                self.seen_gestures.add(obs['gesture_id'])
+                starts.add(hand)
+        if right['event'] == 'START' and 'Right' not in starts:
+            right = dict(right,event='NONE')
         if self.phase == 'NEEDS_RELEASE':
             had_required = bool(self.release_hands)
             self.release_hands.difference_update(hand for hand in tuple(self.release_hands)
                 if hands[hand]['valid'] and hands[hand]['open'])
             _release_hands = set(self.release_hands)
-            if not self.release_hands and (had_required or any(obs['valid'] and obs['open'] for obs in hands.values())):
-                self.phase, _needs_release = 'IDLE', False
-            # A START in the frame that rearms the controller is deliberately consumed.
-            return
+            if not self.release_hands and (had_required or left['valid'] and left['open']):
+                self.phase,_needs_release = 'IDLE',False
+            _message = 'Release '+', '.join(sorted(self.release_hands)) if self.release_hands else 'Ready for a fresh Left pinch'
+            return  # Consume starts in a rearming frame, never queue them.
         if self.drag is None:
-            available = next((hand for hand in ('Left','Right') if hands[hand]['valid']), None)
-            self.tracking = available is not None
-            if available:
+            self.tracking = left['valid']
+            if left['valid']:
                 self.last_present = now
-                obs = hands[available]
-                self.observe((obs['u'], obs['v']))
+                self.observe((left['u'],left['v']))
             else:
                 self.hovered = None
-            if starts:
-                owner = starts[0]  # Deterministic Left wins a coherent simultaneous frame.
-                self.select_hand(owner, hands[owner], hands['Right'], payload['t'])
+            if 'Left' in starts:
+                self.select_hand('Left',left,right,payload['t'])
+            elif not left['valid']:
+                _message = 'Left clutch required; Right alone cannot select'
             return
         drag = self.drag
-        owner, right = hands[drag.owner], hands['Right']
-        # The owner ID cannot silently change, including on a final observation.
-        owner_valid = owner['valid'] and owner['gesture_id'] == drag.identifier
-        released = owner_valid and owner['event'] == 'END' and owner['open']
-        if owner['event'] == 'CANCEL' and owner['gesture_id'] == drag.identifier:
+        owner_valid = left['valid'] and left['gesture_id'] == drag.identifier
+        left_end = owner_valid and left['event'] == 'END' and left['open']
+        right_match = right['valid'] and right['gesture_id'] == drag.right_id
+        right_end = drag.mode == 'EXTRUDE' and right_match and right['event'] == 'END' and right['open']
+        if left['event'] == 'CANCEL' and left['gesture_id'] == drag.identifier:
             self.cancel_drag()
-            _message = 'Selecting hand cancelled; open required hands to rearm'
+            _message = 'Left clutch cancelled; release both hands to rearm'
             return
-        required_valid = owner_valid and (owner['pinching'] or released)
-        if drag.mode in ('ROTATE','SCALE'):
-            required_valid = required_valid and right['valid'] and right['grip']
+        valid = owner_valid and (left['pinching'] or left_end) and right['valid'] and right['shape_valid']
+        if drag.mode in ('MOVE','ROTATE'):
+            valid = valid and right['open_palm'] and not right['pinch_pending']
         elif drag.mode == 'EXTRUDE':
-            required_valid = required_valid and right['valid'] and right['open_palm']
-        self.tracking = bool(required_valid)
-        if not required_valid:
+            valid = valid and right_match and (right['pinching'] or right_end) and right['extrude_pose']
+        # SCALE deliberately has no pinch/open-palm requirement: a fist is valid.
+        completing = left_end or right_end
+        self.tracking = bool(valid)
+        if not valid:
             if drag.lost_since is None:
                 drag.lost_since = now
-            if released or now - drag.lost_since >= drag.intent_config.loss_timeout:
+            if completing or now-drag.lost_since >= drag.intent_config.loss_timeout:
                 self.cancel_drag()
-                self.error('Required hand/pose lost; baseline restored, open hands to rearm')
+                self.error('Required hand/pose invalid at release or lost; baseline restored')
             else:
-                _message = 'Required hand/pose uncertain: preview frozen'
+                _message = right.get('shape_error') or 'Required hand/pose uncertain: preview frozen'
+            return
+        if completing and drag.lost_since is not None:
+            self.cancel_drag()
+            self.error('Release raced required-hand loss; baseline restored')
             return
         self.last_present = now
-        self.cursor = owner['u'], owner['v']
         recovered = drag.lost_since is not None
-        if recovered and now - drag.lost_since >= drag.intent_config.loss_timeout:
+        if recovered and now-drag.lost_since >= drag.intent_config.loss_timeout:
             self.cancel_drag()
-            self.error('Required hand was absent too long; baseline restored')
+            self.error('Required hand absent too long; baseline restored')
             return
         drag.lost_since = None
         if self.phase == 'SELECTED_READY':
-            if released:
-                self.finish_hand()
+            if left_end:
+                self.finish_hand(hands)
                 return
             if recovered:
-                drag.intent = intent.Intent(self.cursor, drag.intent_config)
-            mode = drag.intent.update(payload['t'], self.cursor, right,
-                left_owner=drag.owner == 'Left', override=drag.override)
+                drag.intent = intent.Intent(drag.intent_config)
+            mode = drag.intent.update(payload['t'],right,override=drag.override)
             if mode is not None:
-                self.lock_operation(mode, owner, right)
-            elif drag.owner == 'Left' and right['valid'] and right['grip']:
-                _message = 'Twist to rotate or spread fingers to scale.'
-            elif drag.owner == 'Right' and drag.override in ('ROTATE','SCALE','EXTRUDE'):
-                _message = 'This override requires left selection and right manipulation; release and select with Left'
+                self.lock_operation(mode,right)
+            else:
+                _message = drag.intent.feedback
             return
-        self.preview_hands(owner, right, recovered)
-        if released:
-            self.finish_hand()
+        self.preview_hands(right,recovered)
+        if completing:
+            self.finish_hand(hands)
 
     def handle(self, event):
         global _message, _last_error

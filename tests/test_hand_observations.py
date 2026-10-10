@@ -145,24 +145,22 @@ def test_duplicate_or_low_confidence_identity_does_not_poison_other_hand():
     assert not event['payload']['hands']['Right']['valid']
 
 
-def skeletal_grip(aperture=1., open_palm=False):
-    """Synthetic palm-facing skeleton, thumb/index/middle participating."""
+def skeletal_hand(closure=0., pinch=False, old_grip=False):
+    """Generated planar skeleton; closure bends all four fingers, not three tips."""
     p=[(.5,.8)]*21
     p[1]=(.4,.72);p[2]=(.33,.63);p[3]=(.26,.54);p[4]=(.19,.45)
     for mcp,x in ((5,.42),(9,.5),(13,.58),(17,.66)):
         p[mcp]=(x,.6)
-        if mcp in (5,9) or open_palm:
-            p[mcp+1]=(x,.45);p[mcp+2]=(x,.3);p[mcp+3]=(x,.15)
-        else:
-            p[mcp+1]=(x,.46);p[mcp+2]=(x+.02,.62);p[mcp+3]=(x+.02,.72)
-    # Scale the three tip spread about their mean; interpolate their joints.
-    tips=(4,8,12)
-    c=tuple(sum(p[i][axis] for i in tips)/3 for axis in (0,1))
-    for base,tip in ((1,4),(5,8),(9,12)):
-        end=tuple(c[a]+(p[tip][a]-c[a])*aperture for a in (0,1))
-        start=p[base]
-        for j in (1,2,3):
-            p[base+j]=tuple(start[a]+(end[a]-start[a])*j/3 for a in (0,1))
+        opened=[(x,.45),(x,.3),(x,.15)]
+        folded=[(x,.46),(x+.02,.62),(x+.02,.72)]
+        amount = 1. if old_grip and mcp in (13,17) else closure
+        for offset,(a,b) in enumerate(zip(opened,folded),1):
+            p[mcp+offset]=tuple(a[k]*(1-amount)+b[k]*amount for k in (0,1))
+    if pinch:
+        p[4]=p[8]
+        for i in (2,3):
+            fraction=(i-1)/3
+            p[i]=tuple(p[1][a]+fraction*(p[4][a]-p[1][a]) for a in (0,1))
     return p
 
 
@@ -171,66 +169,68 @@ def rotate(points,radians):
     return [(.5+c*(x-.5)-s*(y-.5),.5+s*(x-.5)+c*(y-.5)) for x,y in points]
 
 
-def test_grip_spread_changes_aperture_without_changing_orientation_or_pose():
-    narrow=manipulation_features(skeletal_grip(.65))
-    wide=manipulation_features(skeletal_grip(1.35))
-    assert narrow['grip'] and wide['grip']
-    assert not narrow['open_palm'] and not wide['open_palm']
-    assert wide['angle']==pytest.approx(narrow['angle'])
-    assert wide['aperture']/narrow['aperture']==pytest.approx(1.35/.65)
+def test_whole_flexion_closes_to_valid_fist_and_reopens():
+    samples=[manipulation_features(skeletal_hand(c,pinch=c==1)) for c in (0,.25,.5,.75,1)]
+    assert all(x['shape_valid'] for x in samples)
+    assert samples[0]['open_palm'] and samples[0]['openness']>.9
+    assert samples[-1]['openness']<.25 and not samples[-1]['extrude_pose']
+    assert not samples[-1]['pinch_pending']
+    assert manipulation_features(skeletal_hand())['open_palm']
 
 
-def test_twist_changes_orientation_without_changing_normalized_aperture():
-    points=skeletal_grip()
-    before=manipulation_features(points)
-    after=manipulation_features(rotate(points,.6))
-    assert before['grip'] and after['grip']
+def test_rotation_distance_and_translation_do_not_change_whole_openness():
+    p=skeletal_hand(.4);before=manipulation_features(p)
+    after=manipulation_features(rotate(p,.6))
+    scaled=[(.5+(x-.5)*.6,.5+(y-.5)*.6) for x,y in p]
     assert after['angle']-before['angle']==pytest.approx(-.6)
-    assert after['aperture']==pytest.approx(before['aperture'])
+    assert after['openness']==pytest.approx(before['openness'])
+    assert manipulation_features(scaled)['openness']==pytest.approx(before['openness'])
+    assert manipulation_features([(x+.1,y-.1) for x,y in p])['openness']==pytest.approx(before['openness'])
 
 
-def test_thumb_required_ring_not_substituted_and_open_palm_distinct():
-    p=skeletal_grip()
-    p[4]=p[1]  # tucked thumb cannot be accepted as a three-finger grip
-    assert not manipulation_features(p)['grip']
-    full=skeletal_grip(open_palm=True)
-    assert manipulation_features(full)['open_palm'] and not manipulation_features(full)['grip']
-    for i in (13,14,15,16):
-        p[i]=full[i]
-    assert not manipulation_features(p)['grip']
-    assert not manipulation_features([(.5,.5)]*21)['grip']
+def test_remaining_fingers_distinguish_pinch_fist_and_obsolete_grip():
+    isolated=manipulation_features(skeletal_hand(pinch=True))
+    fist=manipulation_features(skeletal_hand(1,pinch=True))
+    old=manipulation_features(skeletal_hand(old_grip=True))
+    assert isolated['extrude_pose'] and isolated['pinch_pending']
+    assert not fist['extrude_pose'] and not fist['pinch_pending']
+    assert not old['open_palm'] and not old['extrude_pose']
+    assert 'grip' not in old and 'aperture' not in old
+    degenerate=manipulation_features([(.5,.5)]*21)
+    assert not degenerate['shape_valid'] and degenerate['shape_error']
 
 
-def test_aperture_can_cross_pinch_release_while_grip_and_left_clutch_remain_valid():
+def test_folded_ring_and_pinky_change_measurement_without_moving_three_old_tips():
+    open_hand=skeletal_hand();old=skeletal_hand(old_grip=True)
+    assert all(open_hand[i]==old[i] for i in (4,8,12))
+    assert manipulation_features(old)['openness']<manipulation_features(open_hand)['openness']-.3
+
+
+def test_visible_fist_keeps_valid_identity_and_whole_measurements():
     s=Sequence()
-    def right(spread):
-        return 'Right',.99,[(x+.22,y) for x,y in skeletal_grip(spread)]
-    s.frames(25,[detection('Left'),right(1.)])
-    s.frames(10,[detection('Left',ratio=.15),right(.15)])
-    clutch=s.hand('Left')['gesture_id']
-    assert s.hand('Left')['pinching'] and s.hand('Right')['grip']
-    assert s.hand('Right')['pinching']
-    events=s.frames(10,[detection('Left',ratio=.15),right(1.)])
-    assert any(event['payload']['hands']['Right']['event']=='END' for event in events)
-    assert all(event['payload']['hands']['Right']['grip'] for event in events)
-    assert all(event['payload']['hands']['Left']['gesture_id']==clutch for event in events)
-    assert s.hand('Left')['pinching'] and not s.hand('Left')['open']
+    def right(closed):
+        return 'Right',.99,[(x+.22,y) for x,y in skeletal_hand(closed,pinch=bool(closed))]
+    s.frames(25,[detection('Left'),right(0)])
+    s.frames(10,[detection('Left',ratio=.15),right(0)])
+    left_id=s.hand('Left')['gesture_id']
+    frames=s.frames(25,[detection('Left',ratio=.15),right(1)])
+    assert all(event['payload']['hands']['Right']['shape_valid'] for event in frames)
+    assert s.hand('Right')['openness']<.25 and not s.hand('Right')['extrude_pose']
+    assert s.hand('Left')['gesture_id']==left_id
 
 
-def test_left_clutch_protects_wide_right_grip_identity_from_relocation():
+def test_left_clutch_protects_right_identity_from_relocation():
     s=Sequence()
     def right(shift):
-        return 'Right',.99,[(x+shift,y) for x,y in skeletal_grip(1.)]
+        return 'Right',.99,[(x+shift,y) for x,y in skeletal_hand()]
     s.frames(25,[detection('Left'),right(.22)])
     s.frames(10,[detection('Left',ratio=.15),right(.22)])
-    assert s.hand('Right')['grip'] and not s.hand('Right')['pinching']
-    # This exceeds the continuity limit but does not approach the Left path.
-    # Right must not acquire the new position while Left remains clutched.
+    assert s.hand('Right')['open_palm'] and not s.hand('Right')['pinching']
     events=s.frames(25,[detection('Left',ratio=.15),right(.42)])
     assert all(not event['payload']['hands']['Right']['valid'] for event in events)
     assert all(event['payload']['hands']['Left']['pinching'] for event in events)
     s.frames(20,[detection('Left'),right(.42)])
-    assert s.hand('Right')['valid'] and s.hand('Right')['grip']
+    assert s.hand('Right')['valid'] and s.hand('Right')['open_palm']
 
 
 def test_shutdown_cancels_each_active_id_once():

@@ -93,10 +93,12 @@ class AIRMODELER_PG_precision(bpy.types.PropertyGroup):
     distance: bpy.props.FloatProperty(name='World units', default=2, min=-100, max=100)
     plane: EnumProperty(name='Mapping plane', items=[(p,p,'') for p in ('AUTO','XY','XZ','YZ')], default='AUTO')
     plane_axis: EnumProperty(name='Plane axis', items=[(a,a,'') for a in ('NONE','X','Y','Z')], default='NONE')
-    move_threshold: bpy.props.FloatProperty(name='Move threshold (image fraction)', default=.025, min=.005, max=.2)
+    move_threshold: bpy.props.FloatProperty(name='Right palm move threshold', default=.035, min=.005, max=.2)
     twist_threshold: bpy.props.FloatProperty(name='Twist threshold (degrees)', default=8, min=2, max=45)
-    aperture_threshold: bpy.props.FloatProperty(name='Aperture threshold (fraction)', default=.12, min=.03, max=.5)
+    openness_threshold: bpy.props.FloatProperty(name='Whole-hand openness threshold', default=.15, min=.03, max=.5)
     intent_persistence: bpy.props.FloatProperty(name='Intent persistence (seconds)', default=.15, min=.05, max=.5)
+    intent_dominance: bpy.props.FloatProperty(name='Intent dominance', default=1.35, min=1.1, max=3)
+    intent_hysteresis: bpy.props.FloatProperty(name='Intent retain score', default=.75, min=.25, max=.95)
     extrusion: bpy.props.FloatProperty(name='Outward world units', default=.5, min=.00002, max=4)
 
 

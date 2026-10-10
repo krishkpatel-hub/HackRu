@@ -24,13 +24,19 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--camera', type=int, help='Enable hands using an index discovered with companion.hands --list-cameras')
     parser.add_argument('--model', help='Optional hand landmarker model path')
-    parser.add_argument('--two-hands', action='store_true', help='Enable anatomical either-hand MOVE and left-clutch/right-manipulation observations')
+    hand_mode = parser.add_mutually_exclusive_group()
+    hand_mode.add_argument('--legacy-hands', action='store_true', help='Explicit single-hand legacy cursor fallback; never selected automatically')
+    hand_mode.add_argument('--two-hands', action='store_true', help='Enable Left selection clutch and Right whole-hand MOVE/ROTATE/SCALE or pinch EXTRUDE')
     parser.add_argument('--manipulator-hand', choices=('Right', 'Left'), default='Right')
     parser.add_argument('--mic', action='store_true', help='Enable optional ElevenLabs microphone worker')
     parser.add_argument('--device', type=int, help='Optional microphone device index')
     parser.add_argument('--push-to-talk', action='store_true', help='With --mic, /talk arms audio and /end mutes and commits')
     parser.add_argument('--synthetic', action='store_true', help='Accept raw type/payload JSON lines for camera-free gesture testing')
     args = parser.parse_args(argv)
+    if args.camera is not None and not (args.two_hands or args.legacy_hands):
+        parser.error('--camera requires --two-hands or explicit --legacy-hands')
+    if args.legacy_hands and args.camera is None:
+        parser.error('--legacy-hands requires --camera')
     if args.two_hands and args.camera is None:
         parser.error('--two-hands requires --camera')
     if args.two_hands and args.manipulator_hand != 'Right':
@@ -78,6 +84,10 @@ def main(argv=None):
                  'rotate x/y/z, scale, extrude/extend, move, cancel, undo; status; help; quit. '
                  'Planes: extrude plane xy axis x; extrude plane auto. Precision: rotate x 45 degrees; scale by 1.5; move x 2 units; extrude 0.5 units. '
                  'With --mic --push-to-talk: /talk arms, /end mutes and commits; wait for committed feedback.')
+    if args.two_hands:
+        help_text += ' Left pinch selects only. Right open palm MOVE, twist ROTATE, whole-hand close/open SCALE, isolated pinch EXTRUDE.'
+    elif args.legacy_hands:
+        help_text += ' LEGACY HANDS explicitly enabled: one-hand pinch cursor with typed modes.'
     print(help_text, flush=True)
     if gate is not None:
         print('PTT MUTED', flush=True)

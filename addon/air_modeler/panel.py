@@ -60,7 +60,7 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         tuning = layout.box()
         tuning.enabled = not bridge.dragging()
         tuning.label(text='Intent thresholds (captured at selection)')
-        for key in ('move_threshold','twist_threshold','aperture_threshold','intent_persistence'):
+        for key in ('move_threshold','twist_threshold','openness_threshold','intent_persistence','intent_dominance','intent_hysteresis'):
             tuning.prop(values, key)
         row = layout.row(align=True)
         row.operator('air_modeler.cancel')

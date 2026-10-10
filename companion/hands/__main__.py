@@ -28,7 +28,9 @@ def list_cameras() -> int:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m companion.hands", description=__doc__)
     p.add_argument("--camera", type=int, default=0, help="camera index (default 0)")
-    p.add_argument("--two-hands", action="store_true", help="Coherent anatomical left/right observations for selection clutch controls")
+    hand_mode = p.add_mutually_exclusive_group()
+    hand_mode.add_argument("--legacy-hands", action="store_true", help="Explicit one-hand legacy diagnostic")
+    hand_mode.add_argument("--two-hands", action="store_true", help="Coherent anatomical left/right observations for selection clutch controls")
     p.add_argument("--manipulator-hand", choices=("Left","Right"), default="Right",
                    help="Deprecated compatibility option; clutch mode always uses anatomical roles")
     p.add_argument("--no-preview", action="store_true", help="headless: no window")
@@ -42,6 +44,9 @@ def main(argv=None) -> int:
     a = p.parse_args(argv)
     if a.list_cameras:
         return list_cameras()
+
+    if not (a.two_hands or a.legacy_hands):
+        p.error("choose --two-hands or explicit --legacy-hands")
 
     config = {"camera_index": a.camera, "preview": not a.no_preview,
               "two_hands": a.two_hands, "manipulator_hand": a.manipulator_hand}

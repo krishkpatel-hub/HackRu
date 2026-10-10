@@ -21,7 +21,7 @@ class RunnerTests(unittest.TestCase):
     def test_failed_devices_leave_typed_input_and_shutdown(self):
         env = dict(os.environ)
         env.pop('ELEVENLABS_API_KEY', None)
-        result = subprocess.run([sys.executable, '-m', 'companion.main', '--camera', '0',
+        result = subprocess.run([sys.executable, '-m', 'companion.main', '--camera', '0', '--two-hands',
                                  '--model', '/tmp/air-modeler-nonexistent-model.task', '--mic'],
                                 input='create cube\nquit\n', text=True, capture_output=True,
                                 timeout=20, env=env, cwd=Path(__file__).resolve().parents[1])
@@ -142,3 +142,28 @@ class ConsoleIntegrationTests(unittest.TestCase):
         with patch('sys.stderr'), self.assertRaises(SystemExit) as result:
             main(['--push-to-talk'])
         self.assertEqual(result.exception.code, 2)
+
+
+class ExplicitHandModeTests(unittest.TestCase):
+    def test_camera_cannot_silently_choose_legacy(self):
+        from companion.main import main
+        from unittest.mock import patch
+        for args in (['--camera','0'],['--legacy-hands'],['--camera','0','--two-hands','--legacy-hands']):
+            with patch('sys.stderr'), self.assertRaises(SystemExit) as result:
+                main(args)
+            self.assertEqual(result.exception.code,2)
+
+    def test_explicit_legacy_and_revised_modes_reach_worker_unchanged(self):
+        from companion.main import main
+        from unittest.mock import patch, MagicMock
+        import threading
+        for flag, expected in (('--legacy-hands',False),('--two-hands',True)):
+            captured={}; entered=threading.Event()
+            def tracker(emit,stop,config):
+                captured.update(config);entered.set();stop.wait(2)
+            def lines(*args):
+                self.assertTrue(entered.wait(2));yield 'quit'
+            with patch('companion.main.BridgeServer',return_value=MagicMock()), patch('companion.main.typed_lines',side_effect=lines), patch('companion.hands.tracker.run_hand_tracker',side_effect=tracker), patch('sys.stdout'):
+                self.assertEqual(main(['--camera','0',flag]),0)
+            self.assertEqual(captured['two_hands'],expected)
+            self.assertFalse(captured['preview'])

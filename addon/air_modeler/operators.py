@@ -105,7 +105,7 @@ class AIRMODELER_PG_precision(bpy.types.PropertyGroup):
 class AIRMODELER_OT_precision_apply(bpy.types.Operator):
     bl_idname = 'air_modeler.precision_apply'
     bl_label = 'Apply to Selected Object'
-    bl_description = 'Apply one relative edit; extrusion arms the next face pinch'
+    bl_description = 'Apply one relative edit; in two-hand mode fixed extrusion needs Left face selection and a fresh Right pinch'
     # Blender suppresses nested operator Undo pushes; the outer GUI action
     # supplies one step while sharing the exact inner commit implementation.
     bl_options = {"UNDO"}
@@ -126,7 +126,7 @@ class AIRMODELER_OT_precision_apply(bpy.types.Operator):
         try:
             if values.mode == 'EXTRUDE':
                 if bridge._runtime is None:
-                    raise RuntimeError('Connect Blender before arming a face pinch')
+                    raise RuntimeError('Connect Blender before arming fixed extrusion')
                 bridge._runtime.set_mode('EXTRUDE', distance=amount, source='sidebar override')
                 bridge.redraw()
                 return {'CANCELLED'}  # Arming stages state; it must not push a geometry Undo entry.

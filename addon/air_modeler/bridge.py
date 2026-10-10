@@ -199,7 +199,7 @@ class Client:
         self.fixed_distance = None
         self.mode, self.axis = 'MOVE', 'Z'
         self.plane, self.plane_axis = 'AUTO', 'NONE'
-        self.source = 'single-hand/manual'
+        self.source = 'Left clutch / Right whole hand' if self.clutch else 'single-hand/manual'
         self.automatic_mode()
 
     def cancel_drag(self, *, preserve_mode=False, require_release=True):
@@ -600,6 +600,8 @@ class Client:
             self.cancel_drag()
         self.clutch = True
         self.selector.enabled = False
+        if not self.override:
+            self.source = 'Left clutch / Right whole hand'
         self.last_input = now
         hands = payload['hands']
         left,right = hands['Left'],hands['Right']
@@ -732,7 +734,8 @@ class Client:
                     protocol.validate_precision(payload)
                     if payload['mode'] == 'EXTRUDE':
                         self.set_mode('EXTRUDE', distance=payload['value'])
-                        _message = 'Fixed extrusion armed: pinch an eligible face'
+                        _message = ('Fixed extrusion armed: Left selects face, then Right pinches'
+                                    if self.clutch else 'Fixed extrusion armed: select an eligible face')
                     else:
                         transforms.commit_precision(bpy.context, payload)
                         self.completed_mode()

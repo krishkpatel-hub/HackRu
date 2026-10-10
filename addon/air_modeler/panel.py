@@ -26,7 +26,7 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         if bridge._runtime is not None:
             for line in textwrap.wrap(bridge._runtime.mode_label(), width=40):
                 box.label(text=line)
-            if bridge._runtime.mode == "EXTRUDE" or bridge._runtime.phase == "SELECTED_READY":
+            if bridge._runtime.mode == "EXTRUDE" or bridge._runtime.drag is not None:
                 for line in textwrap.wrap(bridge._runtime.target_message, width=40):
                     box.label(text=line)
             if bridge._runtime.hand_status:
@@ -54,7 +54,7 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
             precision.prop(values, 'plane_axis')
             precision.label(text='Fixed distance uses outward face normal')
         precision.operator('air_modeler.arm_gesture')
-        precision.operator('air_modeler.precision_apply', text='Arm Next Face Pinch' if values.mode == 'EXTRUDE' else 'Apply to Selected Object')
+        precision.operator('air_modeler.precision_apply', text='Arm Fixed Extrusion' if values.mode == 'EXTRUDE' else 'Apply to Selected Object')
         precision.operator('air_modeler.precision_reset')
 
         tuning = layout.box()

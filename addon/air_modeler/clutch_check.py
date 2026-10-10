@@ -387,8 +387,10 @@ class Check(helpers.Check):
             self.mapped_vector(vector*.5)
             yield from self.until(lambda:self.runtime().drag.geometry.outward_distance>.19,'pinch cap preview')
             preview_counts=(len(self.obj().data.vertices),len(self.obj().data.polygons))
+            cap_before_left_motion=geometry.snapshot(self.obj().data)
             self.owner_at((.1,.9));yield .1
             assert same(self.obj().matrix_world,baseline)
+            assert geometry.snapshot(self.obj().data)==cap_before_left_motion,'Left motion changed cap geometry'
             assert self.runtime().drag.face_index==index
             if n%2==0:
                 # Right END supplies a NEW frozen final coordinate and commits
@@ -416,6 +418,9 @@ class Check(helpers.Check):
 
         index=max(range(len(self.obj().data.polygons)),key=lambda i:self.obj().data.polygons[i].center.z)
         self.aim(index);yield .12;yield from self.idle()
+        self.line('create sphere')
+        yield from self.until(lambda:len(self.objects())==2,'zero-extrusion Undo sentinel')
+        zero_sentinel=self.window.view_layer.objects.active.name
         # A pinch already held at selection cannot activate; reopening rearms
         # without a SCALE jump. Pinch approach displacement cannot become MOVE.
         self.right_gid=str(uuid4())
@@ -432,7 +437,11 @@ class Check(helpers.Check):
         self.right_pinch(event='END');yield from self.until(lambda:self.runtime().drag is None,'zero distance completion')
         self.owner_at(self.start_uv,'END');yield from self.idle()
         assert geometry.snapshot(self.obj().data)==mesh_before
-        print('PASS held Right pinch requires rearm, approach cannot steal MOVE, zero-distance completion restores temporary mesh',flush=True)
+        self.line('undo')
+        yield from self.until_stable(lambda:zero_sentinel not in self.window.scene.objects
+            and geometry.snapshot(self.obj().data)==mesh_before and same(self.obj().matrix_world,baseline),
+            'zero extrusion adds no Undo; sentinel creation is undone',settle=.2)
+        print('PASS held Right pinch requires rearm, approach cannot steal MOVE, zero-distance restoration with no Undo entry',flush=True)
 
         snapshots=[mesh_before]
         for distance in (.5,.25):

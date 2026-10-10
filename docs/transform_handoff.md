@@ -1,3 +1,5 @@
+> Current 0.6.0 integration: [two-hand selection and precision handoff](enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
+
 # Current extrusion support
 
 Version 0.5.0 adds EXTRUDE; see [Extrusion handoff](extrusion_handoff.md). The following records 0.4.0 transform behavior and verification. Its unsupported-extrusion statements are historical. Live voice verification was subsequently recorded by V in [voice handoff](voice_handoff.md); sponsor attribution remains unconfirmed.

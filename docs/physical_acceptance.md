@@ -33,3 +33,9 @@ All rows below are **NOT RUN locally** unless an actual observation is entered. 
 | Two-hand identity and selectors | Correct roles; stable modes; no gesture transfer | NOT RUN |
 | Numeric commands / sidebar | Relative bounded edits; one Undo each; sliders do not edit | NOT RUN |
 | Fixed-distance face pinch | Exact armed amount; cancel restores; one Undo | NOT RUN |
+
+## Enhancement rehearsal context (pending)
+
+Planned package: 0.6.0 on Blender 5.2.2; final companion SHA is reported with delivery. No physical row above has a tested revision yet: all remain NOT RUN locally. Use the [enhancement handoff](enhancement_handoff.md) for runtime byte-match verification and exact single-/two-hand launch commands. Add actual commit/version/command and observations to each row when performed; do not infer a PASS from these automated runs.
+
+The first requested user action is to report Help → About Blender and Preferences → Air Modeler versions. While awaiting that observation, engineering and isolated native checks continued. Do not install a new ZIP into the running user's scene without following the restart/update procedure.

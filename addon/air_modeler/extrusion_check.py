@@ -29,6 +29,12 @@ def matrix_near(a, b):
 
 
 class Check(helpers.Check):
+    def wait_drag(self):
+        deadline = time.monotonic() + 2
+        while self.runtime().drag is None:
+            assert time.monotonic() < deadline, self.module.bridge.ui_state()
+            yield .02
+
     def aim(self, index):
         obj = self.obj()
         polygon = obj.data.polygons[index]
@@ -86,6 +92,7 @@ class Check(helpers.Check):
             gid = str(uuid4())
             self.gesture('start', gid, (.5, .5))
             yield .12
+            yield from self.wait_drag()
             assert self.runtime().phase == 'DRAGGING', self.module.bridge.ui_state()
             state = self.runtime().drag.geometry
             assert state.face_index == index
@@ -159,6 +166,7 @@ class Check(helpers.Check):
             gid = str(uuid4())
             self.gesture('start', gid, (.5, .5))
             yield .12
+            yield from self.wait_drag()
             state = self.runtime().drag.geometry
             self.frame((.5, .3), True)
             yield .12

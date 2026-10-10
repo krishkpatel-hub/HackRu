@@ -1,3 +1,5 @@
+> Current 0.6.0 integration: [two-hand selection and precision](enhancement_handoff.md). The results below are historical.
+
 # Superseded transform support
 
 For version 0.4.0 ROTATE/SCALE support and the generalized commit interface, see [Transform handoff](transform_handoff.md). The following records the 0.3.0 MOVE milestone and its validation.

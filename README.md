@@ -2,11 +2,19 @@
 
 ## Implemented MVP and verification
 
-Air Modeler 0.5.0 implements sidebar/voice/typed creation of cubes, UV spheres, cylinders and triangular prisms; pinch MOVE in the viewport plane; world-axis ROTATE; uniform SCALE; outward single-face EXTRUDE; cancel and Undo. Completed gestures return to MOVE. A separate Python companion owns camera/audio and a local TCP bridge; Blender owns all scene edits.
+Air Modeler 0.6.0 implements sidebar/voice/typed creation of cubes, UV spheres, cylinders and triangular prisms; pinch MOVE in the viewport plane; world-axis ROTATE; uniform SCALE; outward single-face EXTRUDE; cancel and Undo. Single-hand gestures return to MOVE; optional two-hand selector mode can rearm the next idle operation. A separate Python companion owns camera/audio and a local TCP bridge; Blender owns all scene edits.
 
 Use Object Mode and visible, editable, unparented meshes without constraints, animation or enabled modifiers. EXTRUDE additionally requires a local single-user mesh, no shape keys/custom normals, a positive nonsingular transform, closed consistently oriented manifold geometry, and a flat convex triangular or quad supporting face. Cube faces, prism caps/sides and eligible newly extruded caps are supported. Reflected transforms, recessed/nonplanar faces, inward/multiple-face extrusion and arbitrary geometry reconstruction are outside this demo. See [geometry restrictions](docs/extrusion_handoff.md).
 
-Automated Python checks and synthetic Blender geometry/Undo checks pass. H's live tracker and V's standalone live speech reports do **not** establish a combined live 0.5.0 demo pass. See [demo evidence and rehearsal](docs/demo_handoff.md) for exact revisions, remaining device checks and presentation checklist. Sponsor attribution remains unconfirmed; V verified realtime API access.
+Automated Python checks and synthetic Blender geometry/Undo checks pass. H's live tracker and V's standalone live speech reports do **not** establish a combined live 0.6.0 demo pass. See [demo evidence and rehearsal](docs/demo_handoff.md) for exact revisions, remaining device checks and presentation checklist. Sponsor attribution remains unconfirmed; V verified realtime API access.
+
+## Two-hand selection and precision (0.6.0)
+
+The cursor-fixed single-hand fallback is retained. Add `--two-hands --manipulator-hand Right` to the PTT launch: right manipulates, left selects; `Left` swaps roles. One camera/one manipulation cursor, `preview=False`. Fist→MOVE, index+middle→world-Z ROTATE, index+middle+ring→SCALE, open palm→EXTRUDE. Thumb is ignored for selection. Stable pose: 300 ms; ambiguous/absent timeout: 600 ms. Active operations lock their tool and target; uncertain manipulating-hand identity freezes/cancels rather than transferring a gesture. Physical mirrored-role confirmation is still required.
+
+Numeric whole phrases: `rotate x 45 degrees` (±360°), `move x -2 units` (±100 world units), `scale by 1.5` (0.1–10), `extrude 0.5 units` / `extend 0.5 units` (>0.00001–4 units). Object edits apply once to the selected eligible object while idle. Numeric extrusion arms the next face pinch; movement does not add distance. Bare mode commands override automatic selection for one operation. Sidebar Precision stages values without mutation; Apply uses shared Undo helpers; Cancel Values discards staged values. Conflicting input during a preview is rejected.
+
+See [0.6.0 handoff](docs/enhancement_handoff.md) for exact launch commands, identity/pose criteria, numeric restrictions, installation/runtime verification and [physical acceptance](docs/physical_acceptance.md). These enhancements are not a claimed combined live demo pass. The user's updated ownership instruction authorizes implementation across project modules; Plus teammates assist testing. The original ownership table below is retained as historical agreement.
 
 ## Reproducible companion setup
 
@@ -56,7 +64,7 @@ The value is hidden and absent from shell history. Launch Blender separately fro
 .venv/bin/python tools/package_addon.py
 ```
 
-ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.5.0**. Companion/PTT changes do not change that version. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.5.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
+ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.6.0**. Companion/PTT changes do not change that version. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.6.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
 
 Choose **one** command after selecting the local device variables above:
 

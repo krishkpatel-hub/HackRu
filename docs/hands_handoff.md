@@ -1,3 +1,5 @@
+> Current 0.6.0 integration: [two-hand selection and precision handoff](enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
+
 # Hands handoff (H, `feature/hands`)
 
 Standalone one-hand tracker. Implements `run_hand_tracker(emit, stop_event, config) -> None` from the README

@@ -25,6 +25,9 @@ class HandConfig:
     min_presence_confidence: float = 0.5
     min_tracking_confidence: float = 0.5
 
+    two_hands: bool = False
+    manipulator_hand: str = "Right"
+
     # Output
     emit_hz: float = 30.0
 
@@ -65,6 +68,8 @@ class HandConfig:
         return cfg
 
     def validate(self) -> None:
+        if type(self.two_hands) is not bool or self.manipulator_hand not in {"Left", "Right"}:
+            raise ValueError("two_hands must be bool; manipulator_hand must be Left or Right")
         if not 0.0 <= self.smoothing < 1.0:
             raise ValueError("smoothing must be in [0, 1)")
         if not 0.0 < self.pinch_start < self.pinch_release:

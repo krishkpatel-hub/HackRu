@@ -1,3 +1,5 @@
+> Current 0.6.0 integration: [two-hand selection and precision handoff](enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
+
 # Single-face EXTRUDE handoff — P, version 0.5.0
 
 Implemented on `feature/blender` after the 0.4.0 transform milestone `82da74c` and voice documentation merge `e40e1dc`. This adds geometry editing to the existing controller, picker, gesture lifecycle, loss watchdog, and restore-then-commit Undo strategy. No protocol, callback, teammate implementation, or root README changes. The teammates' 0.4.0 camera/UI rehearsal remains separate evidence.

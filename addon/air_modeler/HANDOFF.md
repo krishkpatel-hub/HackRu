@@ -1,3 +1,5 @@
+> Current 0.6.0 integration: [two-hand selection and precision handoff](../../docs/enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
+
 # Current milestone: single-face EXTRUDE (0.5.0)
 
 See [Extrusion handoff](../../docs/extrusion_handoff.md) for supported faces, resource/Undo ownership, installation, checks and live rehearsal. Prior milestone records below are historical.

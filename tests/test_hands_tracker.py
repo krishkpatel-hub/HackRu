@@ -97,3 +97,29 @@ def test_preview_is_dropped_off_main_thread_on_macos(monkeypatch):
     th = threading.Thread(target=tracker.run_hand_tracker, args=(lambda e: stop.set(), stop, {"preview": True}))
     th.start(); th.join(10)
     assert not th.is_alive() and cap.released
+
+
+def test_two_hand_tracker_single_stream_one_manipulator(monkeypatch):
+    cap=FakeCap(); lm=FakeLandmarker()
+    monkeypatch.setattr(tracker,'_open_camera',lambda cfg:cap)
+    monkeypatch.setattr(tracker,'_make_landmarker',lambda cfg:lm)
+    ticks=[0]
+    def detect(*_):
+        ticks[0]+=1
+        right=[(x-.25,y) for x,y in hand(mf.OPEN if ticks[0]<60 else mf.PINCH)]
+        left=[(x+.25,y) for x,y in hand(mf.PINCH)]
+        values=[('Right',.99,right),('Left',.99,left)]
+        return values if ticks[0]%2 else list(reversed(values))
+    monkeypatch.setattr(tracker,'detect_hands',detect)
+    events=[]; stop=threading.Event()
+    def emit(event):
+        events.append(event)
+        if event['type']=='gesture_start': stop.set()
+    thread=threading.Thread(target=tracker.run_hand_tracker,args=(emit,stop,{'two_hands':True,'smoothing':0}))
+    thread.start(); thread.join(5)
+    if thread.is_alive(): stop.set();thread.join(2)
+    assert not thread.is_alive() and cap.released and lm.closed
+    assert len([e for e in events if e['type']=='gesture_start'])==1
+    assert any(e['type']=='selector_frame' for e in events)
+    from shared.protocol import validate_event
+    for event in events: validate_event(event)

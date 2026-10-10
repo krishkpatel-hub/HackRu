@@ -1,3 +1,5 @@
+> Current 0.6.0 integration: [two-hand selection and precision handoff](enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
+
 # Demo readiness handoff — P
 
 Add-on **0.5.0** is unchanged from geometry baseline `8eda4fe0d3ba0ed93c08185a6a84835f9dfacea6`. The companion revision is the commit containing this handoff (`git log -1 --format=%H -- companion/main.py`). This milestone adds integrated PTT, console checks and reproducible instructions; it does not claim a complete live demo pass.

@@ -36,3 +36,14 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         row.operator("air_modeler.disconnect")
         for line in textwrap.wrap(error or message, width=40)[:6]:
             box.label(text=line)
+
+        precision = layout.box()
+        precision.label(text='Precision (changes apply only on click)')
+        precision.enabled = not bridge.dragging()
+        values = context.window_manager.air_modeler_precision
+        precision.prop(values, 'mode')
+        if values.mode in ('ROTATE','MOVE'):
+            precision.prop(values, 'axis')
+        precision.prop(values, {'ROTATE':'angle','MOVE':'distance','SCALE':'factor','EXTRUDE':'extrusion'}[values.mode])
+        precision.operator('air_modeler.precision_apply', text='Arm Next Face Pinch' if values.mode == 'EXTRUDE' else 'Apply to Selected Object')
+        precision.operator('air_modeler.precision_reset')

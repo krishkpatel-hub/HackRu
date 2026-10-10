@@ -15,7 +15,7 @@ MAX_OUTBOX = 65536
 MAX_COMMAND_IDS = 4096
 SHAPES = ("cube", "sphere", "cylinder", "prism")
 MODES = ("MOVE", "ROTATE", "SCALE", "EXTRUDE")
-INPUT_TYPES = ("command", "hand_frame", "gesture_start", "gesture_end", "gesture_cancel")
+INPUT_TYPES = ("command", "hand_frame", "gesture_start", "gesture_end", "gesture_cancel", "selector_frame")
 
 
 class ProtocolError(ValueError):
@@ -61,6 +61,20 @@ def coordinates(payload, absent=False):
         require(type(value) in (int, float) and 0 <= value <= 1 and math.isfinite(value), "Coordinates must be finite and within 0–1")
 
 
+def validate_precision(payload):
+    mode = payload.get('mode')
+    require(mode in MODES, "Invalid precision mode")
+    keys(payload, ('id', 'action', 'mode', 'value'), ('axis',))
+    require(('axis' in payload) == (mode in ('MOVE','ROTATE')), "MOVE/ROTATE require an axis; other modes forbid it")
+    if 'axis' in payload:
+        require(payload['axis'] in ('X','Y','Z'), "Invalid world axis")
+    value = payload['value']
+    require(type(value) in (int,float) and math.isfinite(value), "Precision value must be finite")
+    bounds = {'MOVE':(-100,100), 'ROTATE':(-360,360), 'SCALE':(.1,10), 'EXTRUDE':(.00001,4)}
+    low, high = bounds[mode]
+    require(low <= value <= high and (mode != 'EXTRUDE' or value > low), "Precision value outside supported bounds")
+
+
 def validate_event(event):
     """Validate callback type/payload only; never add an envelope or mutate input."""
     keys(event, ("type", "payload"))
@@ -75,6 +89,8 @@ def validate_event(event):
         if action == "spawn":
             keys(payload, ("id", "action", "shape"))
             require(payload["shape"] in SHAPES, "Invalid spawn shape")
+        elif action == "precision":
+            validate_precision(payload)
         elif action == "set_mode":
             keys(payload, ("id", "action", "mode"), ("axis",))
             require(payload["mode"] in MODES, "Invalid mode")
@@ -84,6 +100,11 @@ def validate_event(event):
             require(action in ("cancel", "undo"), "Unknown command action")
             keys(payload, ("id", "action"))
         uuid(payload["id"])
+    elif kind == "selector_frame":
+        keys(payload, ('pose','manipulator','selector'))
+        require(payload['pose'] in ('FIST','TWO','THREE','OPEN','UNKNOWN','ABSENT'), "Invalid selector pose")
+        require(payload['manipulator'] in ('Left','Right') and payload['selector'] in ('Left','Right')
+                and payload['manipulator'] != payload['selector'], "Invalid hand roles")
     elif kind == "hand_frame":
         keys(payload, ("u", "v", "present", "pinching"))
         require(type(payload["present"]) is bool and type(payload["pinching"]) is bool, "Hand flags must be booleans")

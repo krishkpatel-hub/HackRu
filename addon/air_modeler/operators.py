@@ -79,3 +79,66 @@ class AIRMODELER_OT_commit_extrusion(bpy.types.Operator):
             self.report({'ERROR'}, str(exc))
             return {'CANCELLED'}
         return {'FINISHED'}
+
+
+class AIRMODELER_PG_precision(bpy.types.PropertyGroup):
+    mode: EnumProperty(name='Operation', items=[(m,m,'') for m in ('MOVE','ROTATE','SCALE','EXTRUDE')], default='ROTATE')
+    axis: EnumProperty(name='World axis', items=[(a,a,'') for a in 'XYZ'], default='Z')
+    angle: bpy.props.FloatProperty(name='Angle (degrees)', default=45, min=-360, max=360)
+    factor: bpy.props.FloatProperty(name='Uniform factor', default=1.5, min=.1, max=10)
+    distance: bpy.props.FloatProperty(name='World units', default=2, min=-100, max=100)
+    extrusion: bpy.props.FloatProperty(name='Outward world units', default=.5, min=.00002, max=4)
+
+
+class AIRMODELER_OT_precision_apply(bpy.types.Operator):
+    bl_idname = 'air_modeler.precision_apply'
+    bl_label = 'Apply to Selected Object'
+    bl_description = 'Apply one relative edit; extrusion arms the next face pinch'
+    # Blender suppresses nested operator Undo pushes; the outer GUI action
+    # supplies one step while sharing the exact inner commit implementation.
+    bl_options = {"UNDO"}
+
+    @classmethod
+    def poll(cls, context):
+        from . import bridge
+        return (context.mode == 'OBJECT' and context.area is not None and context.area.type == 'VIEW_3D'
+                and not bridge.dragging() and (bridge._runtime is None or bridge._runtime.phase == 'IDLE'))
+
+    def execute(self, context):
+        from . import bridge, transforms
+        values = context.window_manager.air_modeler_precision
+        amount = {'MOVE':values.distance, 'ROTATE':values.angle, 'SCALE':values.factor, 'EXTRUDE':values.extrusion}[values.mode]
+        payload = dict(mode=values.mode, value=amount)
+        if values.mode in ('MOVE','ROTATE'):
+            payload['axis'] = values.axis
+        try:
+            if values.mode == 'EXTRUDE':
+                if bridge._runtime is None:
+                    raise RuntimeError('Connect Blender before arming a face pinch')
+                bridge._runtime.set_mode('EXTRUDE', distance=amount, source='sidebar override')
+            else:
+                transforms.commit_precision(context, payload)
+                if bridge._runtime is not None:
+                    bridge._runtime.completed_mode()
+            bridge.redraw()
+        except (RuntimeError, ValueError) as exc:
+            self.report({'ERROR'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
+class AIRMODELER_OT_precision_reset(bpy.types.Operator):
+    bl_idname = 'air_modeler.precision_reset'
+    bl_label = 'Cancel Values'
+    bl_description = 'Discard unapplied sidebar values without editing geometry'
+
+    @classmethod
+    def poll(cls, context):
+        from .bridge import dragging
+        return not dragging()
+
+    def execute(self, context):
+        values = context.window_manager.air_modeler_precision
+        for key in ('mode','axis','angle','factor','distance','extrusion'):
+            values.property_unset(key)
+        return {'FINISHED'}

@@ -34,6 +34,17 @@ def expected(initial, mode, axis, start, end, rotation=math.tau, scaling=math.lo
 
 
 class Check(helpers.Check):
+    def wait_for(self, predicate, label):
+        deadline = time.monotonic() + 2
+        while not predicate():
+            assert time.monotonic() < deadline, label
+            yield .02
+
+    def wait_matrix(self, wanted):
+        yield from self.wait_for(
+            lambda: max(abs(self.obj().matrix_world[i][j]-wanted[i][j]) for i in range(4) for j in range(4)) < 3e-5,
+            'Timed out waiting for expected transform after TCP delivery')
+
     def sequence(self):
         self.window.scene.cursor.location = (2, -1, .5)
         self.line('create cube')
@@ -60,18 +71,18 @@ class Check(helpers.Check):
                 self.line(command)
                 self.frame(self.uv())
                 yield .12
-                assert self.runtime().status()['payload']['mode'] == mode
+                yield from self.wait_for(lambda: self.runtime().mode == mode, 'mode command delivery')
                 assert self.runtime().axis == axis
                 start = self.uv()
                 gid = str(uuid4())
                 self.gesture('start', gid, start)
                 yield .12
-                matrix_near(self.obj().matrix_world, baseline)
+                yield from self.wait_matrix(baseline)
                 end = (start[0] + .10, start[1] - .15)
                 self.frame(end, True)
                 yield .12
                 wanted = expected(baseline, mode, axis, start, end)
-                matrix_near(self.obj().matrix_world, wanted)
+                yield from self.wait_matrix(wanted)
                 helpers.near(self.position(), baseline.translation)
                 if mode == 'ROTATE':
                     for column in range(3):
@@ -81,20 +92,20 @@ class Check(helpers.Check):
                 self.frame(end, True)
                 yield .12
                 assert self.runtime().mode == mode and len(self.objects()) == 1
-                matrix_near(self.obj().matrix_world, wanted)  # stationary: no drift
+                yield from self.wait_matrix(wanted)  # stationary: no drift
                 self.gesture('end', str(uuid4()), start)
                 self.gesture('start', gid, end)
                 self.frame(pinch=True, present=False)
                 yield .12
-                matrix_near(self.obj().matrix_world, wanted)
+                yield from self.wait_matrix(wanted)
                 self.frame(start, True)
                 yield .12
-                matrix_near(self.obj().matrix_world, baseline)  # return to start
+                yield from self.wait_matrix(baseline)  # return to start
                 final_uv = (start[0] - .075, start[1] + .13)
                 self.gesture('end', gid, final_uv)
                 yield .12
                 final = expected(baseline, mode, axis, start, final_uv)
-                matrix_near(self.obj().matrix_world, final)
+                yield from self.wait_matrix(final)
                 assert self.runtime().mode == 'MOVE' and self.runtime().phase == 'IDLE'
                 # Next pinch performs MOVE, independently undoable from transform.
                 next_start = self.uv()
@@ -106,10 +117,10 @@ class Check(helpers.Check):
                 assert (self.position() - baseline.translation).length > .1
                 self.line('undo')
                 yield .12
-                matrix_near(self.obj().matrix_world, final)
+                yield from self.wait_matrix(final)
                 self.line('undo')
                 yield .12
-                matrix_near(self.obj().matrix_world, baseline)
+                yield from self.wait_matrix(baseline)
                 print('PASS', view, command, 'world matrix, origin/scale, no drift, final coordinates, shared ID/freeze lifecycle, MOVE reset, two Undo steps', flush=True)
             # Reacquire RNA invalidated by Undo.
             rv = self.area.spaces.active.region_3d
@@ -140,7 +151,7 @@ class Check(helpers.Check):
                     self.connect()
                     yield .2
                 yield .12
-                matrix_near(self.obj().matrix_world, baseline)
+                yield from self.wait_matrix(baseline)
                 assert self.runtime().mode == 'MOVE' and self.runtime().phase == 'NEEDS_RELEASE'
                 self.frame(start, True)
                 self.gesture('start', str(uuid4()), start)
@@ -176,7 +187,7 @@ class Check(helpers.Check):
             self.line('undo')  # cancel preview first, undo sphere creation
             yield .12
             assert sphere not in self.window.scene.objects
-            matrix_near(self.obj().matrix_world, original)
+            yield from self.wait_matrix(original)
             print('PASS', command, 'cancel/loss/stale/disconnect, release gate, missed pinch retains mode, unchanged release and Undo during drag', flush=True)
         # High test sensitivity reaches both factor bounds using valid u/v.
         module = self.module.bridge.transforms
@@ -195,7 +206,7 @@ class Check(helpers.Check):
             yield .12
             wanted = Matrix.Diagonal((factor, factor, factor, 1)) @ original
             wanted.translation = original.translation
-            matrix_near(self.obj().matrix_world, wanted)
+            yield from self.wait_matrix(wanted)
             assert abs(self.runtime().drag.amount - factor) < 1e-5
         self.gesture('end', gid, start)
         yield .12
@@ -216,11 +227,11 @@ class Check(helpers.Check):
                 end = (start[0] + .075, start[1] - .1)
                 self.frame(end, True)
                 yield .12
-                matrix_near(self.obj().matrix_world, expected(reflected, mode, 'X', start, end))
+                yield from self.wait_matrix(expected(reflected, mode, 'X', start, end))
                 assert tuple(v < 0 for v in self.obj().scale) == (True, False, False)
                 self.gesture('end', gid, end)
                 yield .12
-                matrix_near(self.obj().matrix_world, expected(reflected, mode, 'X', start, end))
+                yield from self.wait_matrix(expected(reflected, mode, 'X', start, end))
                 assert tuple(v < 0 for v in self.obj().scale) == (True, False, False)
                 # Restore a known baseline outside history for the next case.
                 self.module.bridge.transforms.apply_matrix(self.obj(), reflected, (-1, 1, 1))

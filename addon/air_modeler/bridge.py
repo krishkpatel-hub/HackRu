@@ -7,6 +7,7 @@ import time
 from types import SimpleNamespace
 
 from . import viewport, transforms, extrusion
+from .selection import Selector
 import math
 
 import bpy
@@ -86,6 +87,10 @@ class Client:
         self.hovered = None
         self.drag = None
         self.mode, self.axis = "MOVE", "Z"
+        self.selector = Selector()
+        self.override = False
+        self.fixed_distance = None
+        self.source = "single-hand/manual"
         self.phase = "NEEDS_RELEASE" if _needs_release else "IDLE"
         self.seen_gestures = set()
         self.draw_handler = None
@@ -149,17 +154,37 @@ class Client:
             label += f" {self.drag.amount:.3f}x"
         elif self.drag and self.drag.mode == "EXTRUDE":
             label += f" {self.drag.amount:.3f} units"
-        return label
+        if self.fixed_distance is not None and self.drag is None:
+            label += f" fixed {self.fixed_distance:.3f} units"
+        return label + f" [{self.source}]"
 
-    def set_mode(self, mode, axis="Z"):
+    def set_mode(self, mode, axis="Z", *, source="voice override", distance=None):
         if self.drag:
             raise RuntimeError("Release or cancel the active drag first")
         if mode not in {"MOVE", "ROTATE", "SCALE", "EXTRUDE"}:
             raise RuntimeError(f"{mode} is not implemented in this milestone")
+        if distance is not None:
+            protocol.validate_precision(dict(id='internal', action='precision', mode=mode, value=distance))
         self.mode, self.axis = mode, axis
+        self.override = source != "automatic selector"
+        self.fixed_distance = distance
+        self.source = source
         self.face_outline = ()
         self.target_message = "Point at a flat convex outer triangle/quad" if mode == "EXTRUDE" else ""
         self.next_status = 0
+
+    def automatic_mode(self):
+        if self.selector.enabled and not self.override and self.drag is None and self.phase == 'IDLE':
+            mode = self.selector.mode(time.monotonic())
+            if mode != self.mode or self.source != 'automatic selector':
+                self.set_mode(mode, source='automatic selector')
+
+    def completed_mode(self):
+        self.override = False
+        self.fixed_distance = None
+        self.mode, self.axis = 'MOVE', 'Z'
+        self.source = 'single-hand/manual'
+        self.automatic_mode()
 
     def cancel_drag(self, *, preserve_mode=False):
         global _needs_release
@@ -170,9 +195,9 @@ class Client:
             transforms.apply_matrix(obj, self.drag.baseline, self.drag.scale_signs)
         self.face_outline = ()
         self.drag = None
-        if not preserve_mode:
-            self.mode = "MOVE"
         self.phase = "NEEDS_RELEASE"
+        if not preserve_mode:
+            self.completed_mode()
         _needs_release = True
         self.next_status = 0
 
@@ -201,7 +226,7 @@ class Client:
             return
         drag = self.drag
         if drag.mode == "EXTRUDE":
-            drag.amount = extrusion.distance(drag.start[1], uv[1], drag.geometry.config)
+            drag.amount = drag.fixed_distance if drag.fixed_distance is not None else extrusion.distance(drag.start[1], uv[1], drag.geometry.config)
             drag.geometry.update(drag.amount)
             self.face_outline = drag.geometry.outline()
             return
@@ -231,6 +256,7 @@ class Client:
             self.observe((payload["u"], payload["v"]))
             if self.phase == "NEEDS_RELEASE" and not payload["pinching"]:
                 self.phase, _needs_release = "IDLE", False
+                self.automatic_mode()
             if self.drag and payload["pinching"]:
                 self.preview(self.cursor)
             return
@@ -278,12 +304,13 @@ class Client:
             context["view_layer"].objects.active = obj
             self.drag = SimpleNamespace(identifier=identifier, target_id=obj.session_uid,
                                         baseline=obj.matrix_world.copy(), scale_signs=tuple(obj.scale), view=view,
-                                        mode=self.mode, axis=self.axis, start=uv,
+                                        mode=self.mode, axis=self.axis, start=uv, fixed_distance=self.fixed_distance,
                                         geometry=None, config=transforms.CONFIG, amount=1.0 if self.mode == "SCALE" else 0.0,
                                         point=point, normal=normal, grab=grab,
                                         max_delta=max(100, (point - viewport.ray(view, uv)[0]).length * 10))
             if self.mode == "EXTRUDE":
                 self.drag.geometry = extrusion.Preview(obj, face_index, extrusion.CONFIG)
+                self.preview(uv)
                 self.face_outline = self.drag.geometry.outline()
             self.phase = "DRAGGING"
             _last_error, _message = None, f"{self.mode_label()}: release to commit; Escape to cancel"
@@ -309,6 +336,7 @@ class Client:
                 self.drag = None
                 self.face_outline = ()
                 self.mode, self.phase, _needs_release = "MOVE", "IDLE", False
+                self.completed_mode()
                 if amount > config.negligible_distance:
                     with bpy.context.temp_override(**self.context()):
                         result = bpy.ops.air_modeler.commit_extrusion(
@@ -330,7 +358,7 @@ class Client:
             changed = transforms.changed(baseline, final, tolerance)
             self.drag = None
             self.phase, _needs_release = "IDLE", False
-            self.mode = "MOVE"
+            self.completed_mode()
             if changed:
                 with bpy.context.temp_override(**self.context()):
                     result = bpy.ops.air_modeler.commit_transform("EXEC_DEFAULT", True, target_name=name, matrix=transforms.flatten(final), scale_signs=scale_signs)
@@ -345,11 +373,15 @@ class Client:
         kind, payload = event["type"], event["payload"]
         self.next_status = 0
         try:
+            if kind == 'selector_frame':
+                self.selector.observe(payload['pose'], time.monotonic(), self.drag is None and self.phase == 'IDLE')
+                self.automatic_mode()
+                return
             if kind != "command":
                 self.gesture(kind, payload)
                 return
             action = payload["action"]
-            if self.drag and action in {"spawn", "set_mode"}:
+            if self.drag and action in {"spawn", "set_mode", "precision"}:
                 raise RuntimeError("Release or cancel the active drag first")
             with bpy.context.temp_override(**self.context()):
                 if action == "spawn":
@@ -357,6 +389,19 @@ class Client:
                     if result != {"FINISHED"}:
                         raise RuntimeError("Spawn operator did not finish")
                     _message = f"Created {payload['shape']}"
+                elif action == 'precision':
+                    if bpy.context.mode != 'OBJECT':
+                        raise RuntimeError('Precision edits require Object Mode')
+                    if self.phase != 'IDLE':
+                        raise RuntimeError('Open/release the hand before a precision edit')
+                    protocol.validate_precision(payload)
+                    if payload['mode'] == 'EXTRUDE':
+                        self.set_mode('EXTRUDE', distance=payload['value'])
+                        _message = 'Fixed extrusion armed: pinch an eligible face'
+                    else:
+                        transforms.commit_precision(bpy.context, payload)
+                        self.completed_mode()
+                        _message = 'Precision edit completed'
                 elif action == "cancel":
                     self.cancel_drag()
                     _message = "Cancelled; release hand to rearm"
@@ -411,6 +456,7 @@ class Client:
         self.context()  # Stop cleanly if the captured UI/scene context went away.
         now = time.monotonic()
         self.check_tracking(now)
+        self.automatic_mode()
         if self.session.session_id is None and now > self.deadline:
             raise ConnectionError("Connection/hello timed out; start the companion and reconnect")
         if self.connecting:

@@ -28,6 +28,8 @@ def list_cameras() -> int:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m companion.hands", description=__doc__)
     p.add_argument("--camera", type=int, default=0, help="camera index (default 0)")
+    p.add_argument("--two-hands", action="store_true", help="Enable selector observations")
+    p.add_argument("--manipulator-hand", choices=("Left","Right"), default="Right")
     p.add_argument("--no-preview", action="store_true", help="headless: no window")
     p.add_argument("--model", help="path to hand_landmarker.task")
     p.add_argument("--smoothing", type=float, help="cursor smoothing 0..<1 (default 0.5)")
@@ -40,7 +42,8 @@ def main(argv=None) -> int:
     if a.list_cameras:
         return list_cameras()
 
-    config = {"camera_index": a.camera, "preview": not a.no_preview}
+    config = {"camera_index": a.camera, "preview": not a.no_preview,
+              "two_hands": a.two_hands, "manipulator_hand": a.manipulator_hand}
     for key, val in (("model_path", a.model), ("smoothing", a.smoothing), ("pinch_start", a.pinch_start),
                      ("pinch_release", a.pinch_release), ("pinch_stable_ms", a.stable_ms)):
         if val is not None:

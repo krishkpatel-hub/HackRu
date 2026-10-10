@@ -41,7 +41,7 @@ def _make_landmarker(cfg: HandConfig):
     options = vision.HandLandmarkerOptions(
         base_options=mp_python.BaseOptions(model_asset_path=str(model)),
         running_mode=vision.RunningMode.VIDEO,
-        num_hands=1,
+        num_hands=2 if cfg.two_hands else 1,
         min_hand_detection_confidence=cfg.min_detection_confidence,
         min_hand_presence_confidence=cfg.min_presence_confidence,
         min_tracking_confidence=cfg.min_tracking_confidence,
@@ -57,6 +57,13 @@ def detect_landmarks(landmarker, mirrored_bgr, timestamp_ms: int):
     if not result.hand_landmarks:
         return None
     return [(p.x, p.y) for p in result.hand_landmarks[0]]
+
+
+def detect_hands(landmarker, mirrored_bgr, timestamp_ms):
+    rgb = cv2.cvtColor(mirrored_bgr, cv2.COLOR_BGR2RGB)
+    result = landmarker.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), timestamp_ms)
+    return [(labels[0].category_name, labels[0].score, [(p.x,p.y) for p in points])
+            for points, labels in zip(result.hand_landmarks, result.handedness) if labels]
 
 
 def run_hand_tracker(
@@ -79,6 +86,8 @@ def run_hand_tracker(
     landmarker = _make_landmarker(cfg)
     cap = None
     engine = HandEngine(cfg)
+    from .roles import Roles, pose
+    roles = Roles(cfg.manipulator_hand) if cfg.two_hands else None
     try:
         cap = _open_camera(cfg)
         t0 = time.monotonic()
@@ -102,7 +111,13 @@ def run_hand_tracker(
             ts_ms = max(int((now - t0) * 1000), last_ts_ms + 1)
             last_ts_ms = ts_ms
             h, w = frame.shape[:2]
-            landmarks = detect_landmarks(landmarker, frame, ts_ms)
+            if roles is not None:
+                landmarks, selector = roles.update(detect_hands(landmarker, frame, ts_ms), now-t0, engine.pinching)
+                emit({'type':'selector_frame', 'payload':dict(
+                    pose=pose(selector, w/h) if selector is not None else 'ABSENT',
+                    manipulator=roles.manipulator, selector=roles.selector)})
+            else:
+                landmarks = detect_landmarks(landmarker, frame, ts_ms)
             for ev in engine.update(now - t0, landmarks, aspect=w / h):
                 emit(ev)
 

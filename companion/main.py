@@ -24,11 +24,15 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--camera', type=int, help='Enable hands using an index discovered with companion.hands --list-cameras')
     parser.add_argument('--model', help='Optional hand landmarker model path')
+    parser.add_argument('--two-hands', action='store_true', help='Enable automatic selector hand observations')
+    parser.add_argument('--manipulator-hand', choices=('Right', 'Left'), default='Right')
     parser.add_argument('--mic', action='store_true', help='Enable optional ElevenLabs microphone worker')
     parser.add_argument('--device', type=int, help='Optional microphone device index')
     parser.add_argument('--push-to-talk', action='store_true', help='With --mic, /talk arms audio and /end mutes and commits')
     parser.add_argument('--synthetic', action='store_true', help='Accept raw type/payload JSON lines for camera-free gesture testing')
     args = parser.parse_args(argv)
+    if args.two_hands and args.camera is None:
+        parser.error('--two-hands requires --camera')
     if args.push_to_talk and not args.mic:
         parser.error('--push-to-talk requires --mic')
     stop = threading.Event()
@@ -48,7 +52,8 @@ def main(argv=None):
         workers.append(thread)
     def hands():
         from companion.hands.tracker import run_hand_tracker
-        config = dict(camera_index=args.camera, preview=False, pinch_start=.35,
+        config = dict(camera_index=args.camera, preview=False, two_hands=args.two_hands,
+                      manipulator_hand=args.manipulator_hand, pinch_start=.35,
                       pinch_release=.60, loss_cancel_s=.5)
         if args.model:
             config['model_path'] = args.model
@@ -68,7 +73,8 @@ def main(argv=None):
     if args.mic:
         worker('Voice', voice)
     help_text = ('Connect in Blender, wait for READY. Type create cube/sphere/cylinder/triangular prism, '
-                 'rotate x/y/z, scale, extrude, move, cancel, undo; status; help; quit. '
+                 'rotate x/y/z, scale, extrude/extend, move, cancel, undo; status; help; quit. '
+                 'Precision: rotate x 45 degrees; scale by 1.5; move x 2 units; extrude 0.5 units. '
                  'With --mic --push-to-talk: /talk arms, /end mutes and commits; wait for committed feedback.')
     print(help_text, flush=True)
     if gate is not None:

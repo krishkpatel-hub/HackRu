@@ -71,3 +71,40 @@ def apply_matrix(obj, matrix, scale_signs):
     else:
         obj.rotation_euler = rotation.to_euler(obj.rotation_mode, obj.rotation_euler)
     obj.scale = tuple(value * flip for value, flip in zip(obj.scale, flips))
+
+
+def precise_matrix(initial, mode, axis, value):
+    """One relative world-space edit; validation is shared with wire/sidebar."""
+    if mode == 'MOVE':
+        matrix = initial.copy()
+        matrix.translation['XYZ'.index(axis)] += value
+        return matrix
+    delta = Matrix.Rotation(math.radians(value), 4, axis) if mode == 'ROTATE' else Matrix.Scale(value, 4)
+    matrix = delta @ initial
+    matrix.translation = initial.translation
+    return matrix
+
+
+def commit_precision(context, payload):
+    from . import viewport
+    from .bridge import protocol
+    import bpy
+    protocol.validate_precision(dict(payload, id='internal', action='precision'))
+    if context.mode != 'OBJECT':
+        raise RuntimeError('Precision edits require Object Mode')
+    obj = context.view_layer.objects.active
+    lookup = dict(view_layer=context.view_layer, window=context.window, area=context.area)
+    if obj is None or not obj.select_get() or not viewport.eligible(obj, lookup):
+        raise RuntimeError('Select an eligible editable mesh first')
+    if payload['mode'] == 'EXTRUDE':
+        raise RuntimeError('Extrusion must be armed for a face pinch')
+    baseline, signs, name = obj.matrix_world.copy(), tuple(obj.scale), obj.name
+    if not all(math.isfinite(v) for row in baseline for v in row):
+        raise RuntimeError('Target transform must be finite')
+    final = precise_matrix(baseline, payload['mode'], payload.get('axis','Z'), payload['value'])
+    if not changed(baseline, final, CONFIG.matrix_tolerance):
+        return
+    result = bpy.ops.air_modeler.commit_transform('EXEC_DEFAULT', True, target_name=name,
+                                                matrix=flatten(final), scale_signs=signs)
+    if result != {'FINISHED'}:
+        raise RuntimeError('Precision transform commit failed')

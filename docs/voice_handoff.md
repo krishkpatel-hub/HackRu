@@ -155,8 +155,9 @@ normalized text and word spans in the provider's session audio timeline, not a
 text cooldown. Later identical commands with new timing get new UUIDs, even
 without an intermediate partial. Spacing entries are excluded from fingerprints.
 The cache retains 1024 recent spans and rejects replays at/before the evicted
-audio watermark. Missing/malformed timestamps fail closed. Keep timestamps enabled;
-verify their session timeline in the live API rehearsal. No reconnect/replay occurs.
+audio watermark. Missing/malformed timestamps fail closed. Keep timestamps enabled.
+The live rehearsal confirmed later utterances have later session word spans.
+No reconnect/replay occurs.
 
 Queues hold at most one second of audio. Capture status errors or overflow stop
 voice rather than replaying stale audio. Stop interrupts Python input polling and
@@ -226,15 +227,46 @@ git diff --check
   emit typed `undo`, `create cube`, and another `create cube`; the two cube
   commands had distinct UUIDs and the process exited successfully.
 
-**Pending live checks:** an authenticated realtime rehearsal has not yet been
-completed. The user will load the sponsored key privately in Terminal; its value
-is neither requested in chat nor logged. Sponsored workspace/allowance, the live
-command checklist, partial suppression, deduplication with live events,
-intentional spoken repetition, push-to-talk in venue noise, and actual API close
-after Ctrl+C remain unverified. This is the unresolved verification prerequisite;
-physical microphone capture is now confirmed. The earlier native probe stalled
-and was terminated; the bounded
-follow-up above now verifies physical capture and clean microphone close.
+- Live ElevenLabs recognition passed in the user's Terminal. The full sequence
+  `create cube`, `create sphere`, `create cylinder`, `create triangular prism`,
+  `rotate x`, `scale`, `extrude`, `move`, `cancel`, `undo`, `create cube` emitted
+  exactly 11 spoken commands with the documented payloads and 11 distinct UUIDs.
+  The two cubes had different word spans (2.44–3.18 s and 31.98–33.14 s),
+  confirming intentional repetition executes again on the session timeline.
+- In that full live session, 13 partials and 12 plain commits emitted zero
+  commands. The temporary diagnostic replayed each of the 12 real timestamped
+  events once; all injected replays emitted zero additional commands. This is
+  replay testing with real event data, not a claim that the provider naturally
+  sent duplicate timestamped events. Plain/timestamped partner events executed
+  once. Unrelated committed speech (`Mm, negative.`) was rejected.
+- Live push-to-talk: two `/talk` → spoken `create cube` → `/end` turns emitted
+  exactly two cubes with different UUIDs and word spans. Typed `undo` also
+  emitted correctly in the same session. Five partials, two plain commits, and
+  two injected timestamped replays emitted zero additional commands. The user
+  confirmed speech attempted while muted produced no command and venue
+  background noise was present. These environmental conditions are operator
+  observations; the report verifies the resulting command/event counts.
+- Manual Ctrl+C in the full-command and push-to-talk sessions returned exit code
+  0; microphone streams, API WebSockets, and owned HTTP clients all closed,
+  with no voice worker left alive. The initial short live recognition session
+  also passed the same resource-close checks.
+- Local diagnostic reports (temporary, not committed; no audio or key values):
+  `/tmp/hackru_voice_live_vad.json`, `/tmp/hackru_voice_live_commands.json`, and
+  `/tmp/hackru_voice_live_ptt.json`. Payload/UUID/event/resource assertions passed
+  against the full-command and PTT reports. All 28 voice unittest tests passed
+  again after these live checks. Production code required no changes.
+
+**Remaining verification — sponsor attribution only:** the user reports dashboard
+usage increased from 0 to 70 credits against a displayed 131,000-credit allowance.
+The dashboard shows Creator plan without a sponsorship label. Realtime access and
+a dashboard usage
+increase are confirmed, but ownership of the key by the sponsored workspace and
+attribution to the sponsored grant remain unconfirmed. The workspace/sponsor
+admin must confirm the key's workspace and that the displayed allowance is the
+sponsored realtime allowance. No API key was requested in chat or logged.
+
+The earlier native probe stalled and was terminated; the bounded follow-up above
+now verifies physical capture and clean microphone close.
 An initial zero-frame follow-up result came from a buffer conversion bug in the
 temporary diagnostic, which was corrected; production already converts the raw
 buffer to bytes. No production fix was required. Use the audio virtualenv:

@@ -24,6 +24,7 @@ Run from the repo root (`companion/` has no `__init__.py`; it works as a namespa
 
 ```bash
 python -m companion.hands                     # preview window + JSON events on stdout
+python -m companion.hands --list-cameras      # find the laptop webcam index (0 may be a phone/OBS!)
 python -m companion.hands --no-preview        # headless
 python -m companion.hands --no-frames         # print only gesture_* events
 python -m companion.hands --camera 1 --smoothing 0.7 --pinch-start 0.30 --pinch-release 0.55 --stable-ms 100
@@ -43,8 +44,8 @@ threading.Thread(target=run_hand_tracker, args=(emit, stop_event, {"preview": Fa
   main thread: if `preview=True` is requested off the main thread, preview is disabled with a stderr warning. To show a preview
   while integrating on macOS, run `run_hand_tracker` on the main thread and the rest in other threads.
 - **Camera permission (macOS):** the process (your terminal/IDE) needs Camera access. Without it startup raises
-  `RuntimeError("cannot open camera 0 …")` *before* any event is emitted. Index 0 was the FaceTime camera here, but macOS also lists
-  Continuity/OBS virtual cameras; use `camera_index` if the wrong one opens.
+  `RuntimeError("cannot open camera 0 …")` *before* any event is emitted. On the dev laptop index 0 was the iPhone (Continuity Camera, 1080p, black), 1 was OBS and the FaceTime camera was **2**.
+  Indices differ per machine and change when a phone connects: run `--list-cameras` and set `camera_index`.
 - `run_hand_tracker` raises `RuntimeError`/`FileNotFoundError`/`ValueError` for setup problems, and `RuntimeError` if the camera
   stops delivering frames for `camera_fail_timeout_s` (3 s). On every exit path it releases the camera, closes the landmarker,
   and, if a gesture is active, emits one `gesture_cancel` with `reason: "shutdown"` first.
@@ -102,10 +103,10 @@ Actually performed:
 - Model download via `python -m companion.hands.model`, including the curl fallback, sha256 matches.
 - CLI `--help`, and camera-denied path (clean error, exit 1).
 
-**Not verified (blocked, needs a human at the laptop):**
-- **Live webcam end to end.** The macOS Camera permission was not granted to the process I ran in
-  (`OpenCV: not authorized to capture video`), so no live frames, real-time fps, GUI window, pinch ratios on a live hand, or clean
-  Ctrl-C with a running camera have been observed. First command to run: `python -m companion.hands`, then grant Camera access to your terminal and re-run.
+- Live laptop camera (index 2, headless, run in a thread): ~29 Hz `hand_frame`, hand detected in some frames, `stop_event` ends the thread and releases the camera. (Index 0 was a phone feed at 1080p: ~24 Hz and black.) Camera access had to be granted to the host terminal first.
+
+**Not verified:**
+- Pinch ratios and real pinch/release/loss gestures on a live hand, the GUI preview window, and Ctrl-C of the CLI with the camera running.
 - Windows/Linux (code has no platform-specific paths besides the macOS main-thread rule).
 - Tuning of the thresholds/smoothing on real hand motion; dropout behavior of MediaPipe when fingers overlap in a pinch.
 

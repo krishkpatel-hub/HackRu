@@ -9,6 +9,22 @@ import sys
 import threading
 
 
+def list_cameras() -> int:
+    """Print index, resolution and brightness per camera so the laptop webcam can be told from
+    a phone (Continuity Camera, usually 1080p) or a virtual camera (OBS)."""
+    import cv2
+
+    for i in range(5):
+        cap = cv2.VideoCapture(i)
+        ok, frame = cap.read() if cap.isOpened() else (False, None)
+        cap.release()
+        if ok:
+            h, w = frame.shape[:2]
+            print(f"camera {i}: {w}x{h} mean brightness {frame.mean():.0f}")
+    print("pick one with --camera N (a black or logo frame = phone/virtual camera)")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m companion.hands", description=__doc__)
     p.add_argument("--camera", type=int, default=0, help="camera index (default 0)")
@@ -18,8 +34,11 @@ def main(argv=None) -> int:
     p.add_argument("--pinch-start", type=float, help="pinch ratio to start (default 0.35)")
     p.add_argument("--pinch-release", type=float, help="pinch ratio to release (default 0.60)")
     p.add_argument("--stable-ms", type=float, help="stability window in ms (default 80)")
+    p.add_argument("--list-cameras", action="store_true", help="probe camera indexes 0-4 and exit")
     p.add_argument("--no-frames", action="store_true", help="print only gesture_* events")
     a = p.parse_args(argv)
+    if a.list_cameras:
+        return list_cameras()
 
     config = {"camera_index": a.camera, "preview": not a.no_preview}
     for key, val in (("model_path", a.model), ("smoothing", a.smoothing), ("pinch_start", a.pinch_start),

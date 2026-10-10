@@ -27,6 +27,11 @@ class VoiceConfig:
     source: str = "microphone"
     input_stream: TextIO | None = None
     feedback: Callable[[str], None] = stderr_feedback
+    device: int | str | None = None
+    sample_rate: int = 16000
+    push_to_talk_event: Event | None = None
+    connection_timeout: float = 10.0
+    operation_timeout: float = 5.0
 
 
 def emit_command(text: str, emit: Callable[[dict], None], stop_event: Event) -> bool:
@@ -75,6 +80,8 @@ def run_voice(emit, stop_event, config) -> None:
             if not emit_command(text, emit, stop_event) and text.strip():
                 config.feedback("Ignored: enter one supported command phrase.")
     elif config.source == "microphone":
-        raise VoiceError("Microphone streaming is not yet installed; use typed mode.")
+        from .microphone import run_microphone
+
+        run_microphone(emit, stop_event, config)
     else:
         raise VoiceError("source must be 'typed' or 'microphone'.")

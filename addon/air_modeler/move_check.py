@@ -329,8 +329,9 @@ class Check(helpers.Check):
         return .02
 
 
-check = Check()
-check.deadline = time.monotonic() + 60
+check = Check() if __name__ == "__main__" else None
+if check is not None:
+    check.deadline = time.monotonic() + 60
 
 def advance():
     try:
@@ -343,4 +344,5 @@ def advance():
         sys.stderr.flush()
         os._exit(1)
 
-bpy.app.timers.register(advance, first_interval=.2)
+if check is not None:
+    bpy.app.timers.register(advance, first_interval=.2)

@@ -96,3 +96,9 @@ def draw(client):
     shader.bind()
     shader.uniform_float('color', color)
     batch_for_shader(shader, 'LINE_STRIP', {'pos': points}).draw(shader)
+
+    import blf
+    blf.position(0, x + 16, y + 16, 0)
+    blf.size(0, 14)
+    blf.color(0, *color)
+    blf.draw(0, client.mode_label())

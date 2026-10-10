@@ -3,20 +3,20 @@
 bl_info = {
     "name": "Air Modeler",
     "author": "HackRU Team",
-    "version": (0, 3, 0),
+    "version": (0, 4, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > Air Modeler",
-    "description": "Hand cursor, picking, undoable MOVE and primitive creation",
+    "description": "Hand cursor, picking, undoable MOVE, ROTATE and SCALE and primitive creation",
     "category": "Add Mesh",
 }
 
 import bpy
 
-from .operators import AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_move
+from .operators import AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_transform
 from .panel import AIRMODELER_PT_primitives
 from . import bridge
 
-_CLASSES = (AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_move, bridge.AIRMODELER_OT_connect,
+_CLASSES = (AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_transform, bridge.AIRMODELER_OT_connect,
             bridge.AIRMODELER_OT_disconnect, AIRMODELER_PT_primitives)
 
 

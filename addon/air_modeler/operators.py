@@ -33,20 +33,21 @@ class AIRMODELER_OT_create_primitive(bpy.types.Operator):
         return {"FINISHED"}
 
 
-class AIRMODELER_OT_commit_move(bpy.types.Operator):
-    """Only final translation is applied here; controller restored the baseline."""
-    bl_idname = "air_modeler.commit_move"
-    bl_label = "Air Modeler Move"
+class AIRMODELER_OT_commit_transform(bpy.types.Operator):
+    """Apply the final world matrix after the controller restores baseline."""
+    bl_idname = "air_modeler.commit_transform"
+    bl_label = "Air Modeler Transform"
     bl_options = {"UNDO", "INTERNAL"}
 
     target_name: bpy.props.StringProperty()
-    translation: bpy.props.FloatVectorProperty(size=3)
+    matrix: bpy.props.FloatVectorProperty(size=16)
+    scale_signs: bpy.props.FloatVectorProperty(size=3, default=(1, 1, 1))
 
     def execute(self, context):
         obj = context.view_layer.objects.get(self.target_name)
         if obj is None or context.mode != 'OBJECT':
             return {'CANCELLED'}
-        matrix = obj.matrix_world.copy()
-        matrix.translation = self.translation
-        obj.matrix_world = matrix
+        from mathutils import Matrix
+        from .transforms import apply_matrix
+        apply_matrix(obj, Matrix(tuple(self.matrix[i:i+4] for i in range(0, 16, 4))), self.scale_signs)
         return {'FINISHED'}

@@ -1,3 +1,7 @@
+# Superseded transform support
+
+For version 0.4.0 ROTATE/SCALE support and the generalized commit interface, see [Transform handoff](transform_handoff.md). The following records the 0.3.0 MOVE milestone and its validation.
+
 # MOVE integration handoff (P)
 
 The root README remains the architecture agreement. Add-on **0.3.0** implements a hand cursor, passive hover picking, default viewport-plane MOVE, typed spawning/cancel/undo, and optional hand/microphone workers. Rotation, uniform scaling, and extrusion remain unsupported and visibly rejected.

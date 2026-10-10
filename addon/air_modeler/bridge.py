@@ -6,7 +6,8 @@ import socket
 import time
 from types import SimpleNamespace
 
-from . import viewport
+from . import viewport, transforms
+import math
 
 import bpy
 from bpy.app.handlers import persistent
@@ -82,6 +83,7 @@ class Client:
         self.cursor = None
         self.hovered = None
         self.drag = None
+        self.mode, self.axis = "MOVE", "Z"
         self.phase = "NEEDS_RELEASE" if _needs_release else "IDLE"
         self.seen_gestures = set()
         self.draw_handler = None
@@ -136,12 +138,30 @@ class Client:
             return None
         return next((obj for obj in bpy.data.objects if obj.session_uid == self.drag.target_id), None)
 
-    def cancel_drag(self):
+    def mode_label(self):
+        label = f"ROTATE world {self.axis}" if self.mode == "ROTATE" else self.mode
+        if self.drag and self.drag.mode == "ROTATE":
+            label += f" {math.degrees(self.drag.amount):+.1f}°"
+        elif self.drag and self.drag.mode == "SCALE":
+            label += f" {self.drag.amount:.3f}x"
+        return label
+
+    def set_mode(self, mode, axis="Z"):
+        if self.drag:
+            raise RuntimeError("Release or cancel the active drag first")
+        if mode not in {"MOVE", "ROTATE", "SCALE"}:
+            raise RuntimeError(f"{mode} is not implemented in this milestone")
+        self.mode, self.axis = mode, axis
+        self.next_status = 0
+
+    def cancel_drag(self, *, preserve_mode=False):
         global _needs_release
         obj = self.target()
         if obj is not None:
-            obj.matrix_world = self.drag.baseline
+            transforms.apply_matrix(obj, self.drag.baseline, self.drag.scale_signs)
         self.drag = None
+        if not preserve_mode:
+            self.mode = "MOVE"
         self.phase = "NEEDS_RELEASE"
         _needs_release = True
         self.next_status = 0
@@ -159,6 +179,11 @@ class Client:
             self.cancel_drag()
             return
         drag = self.drag
+        if drag.mode != "MOVE":
+            matrix, drag.amount = transforms.preview_matrix(
+                drag.baseline, drag.mode, drag.axis, drag.start, uv, drag.config)
+            transforms.apply_matrix(obj, matrix, drag.scale_signs)
+            return
         current = viewport.plane_point(drag.view, uv, drag.point, drag.normal)
         if current is None:
             return
@@ -167,7 +192,7 @@ class Client:
             return
         matrix = drag.baseline.copy()
         matrix.translation += delta
-        obj.matrix_world = matrix
+        transforms.apply_matrix(obj, matrix, drag.scale_signs)
 
     def gesture(self, kind, payload):
         global _needs_release, _last_error, _message
@@ -195,7 +220,7 @@ class Client:
             context = self.context()
             with bpy.context.temp_override(**context):
                 if bpy.context.mode != "OBJECT":
-                    self.error("MOVE requires Object Mode")
+                    self.error("Transforms require Object Mode")
                     self.cancel_drag()
                     return
             uv = payload["u"], payload["v"]
@@ -204,7 +229,7 @@ class Client:
             self.observe(uv)
             if hit is None:
                 self.error("Unsupported target: use an editable unparented mesh without modifiers, constraints or animation" if rejected else "Pinch missed; release before trying again")
-                self.cancel_drag()
+                self.cancel_drag(preserve_mode=True)
                 return
             obj, point = hit
             normal = view[1].view_matrix.inverted().col[2].xyz.normalized()
@@ -218,11 +243,13 @@ class Client:
             obj.select_set(True)
             context["view_layer"].objects.active = obj
             self.drag = SimpleNamespace(identifier=identifier, target_id=obj.session_uid,
-                                        baseline=obj.matrix_world.copy(), view=view,
+                                        baseline=obj.matrix_world.copy(), scale_signs=tuple(obj.scale), view=view,
+                                        mode=self.mode, axis=self.axis, start=uv,
+                                        config=transforms.CONFIG, amount=1.0 if self.mode == "SCALE" else 0.0,
                                         point=point, normal=normal, grab=grab,
                                         max_delta=max(100, (point - viewport.ray(view, uv)[0]).length * 10))
             self.phase = "DRAGGING"
-            _last_error, _message = None, "MOVE: release to commit; Escape to cancel"
+            _last_error, _message = None, f"{self.mode_label()}: release to commit; Escape to cancel"
             return
         if not self.drag or identifier != self.drag.identifier:
             return
@@ -238,20 +265,24 @@ class Client:
             if obj is None:
                 return
             baseline = self.drag.baseline.copy()
-            final = obj.matrix_world.translation.copy()
-            obj.matrix_world = baseline
+            final = obj.matrix_world.copy()
+            operation = self.drag.mode
+            tolerance = self.drag.config.matrix_tolerance
+            scale_signs = self.drag.scale_signs
+            transforms.apply_matrix(obj, baseline, scale_signs)
             name = obj.name
-            changed = (final - baseline.translation).length > 1e-6
+            changed = transforms.changed(baseline, final, tolerance)
             self.drag = None
             self.phase, _needs_release = "IDLE", False
+            self.mode = "MOVE"
             if changed:
                 with bpy.context.temp_override(**self.context()):
-                    result = bpy.ops.air_modeler.commit_move("EXEC_DEFAULT", True, target_name=name, translation=final)
+                    result = bpy.ops.air_modeler.commit_transform("EXEC_DEFAULT", True, target_name=name, matrix=transforms.flatten(final), scale_signs=scale_signs)
                 if result != {"FINISHED"}:
                     self.cancel_drag()
-                    self.error("MOVE commit failed; baseline restored")
+                    self.error("Transform commit failed; baseline restored")
                     return
-            _last_error, _message = None, "MOVE committed" if changed else "MOVE unchanged"
+            _last_error, _message = None, f"{operation} committed" if changed else f"{operation} unchanged"
 
     def handle(self, event):
         global _message, _last_error
@@ -281,10 +312,9 @@ class Client:
                     bpy.ops.ed.undo()
                     self.hovered = None
                     _message = "Undo completed"
-                elif payload["mode"] == "MOVE":
-                    _message = "MOVE ready"
                 else:
-                    raise RuntimeError(f"{payload['mode']} is not implemented in this milestone")
+                    self.set_mode(payload["mode"], payload.get("axis", "Z"))
+                    _message = f"{self.mode_label()} armed"
             _last_error = None
         except protocol.SessionFull:
             raise
@@ -314,7 +344,7 @@ class Client:
         active = context["view_layer"].objects.active
         selected = active.name if active is not None and active.select_get(view_layer=context["view_layer"]) else None
         return {"type": "status", "payload": {
-            "mode": "MOVE", "phase": self.phase, "selected_object": selected,
+            "mode": self.mode, "phase": self.phase, "selected_object": selected,
             "hovered_object": self.hovered,
             "tracking": self.tracking and time.monotonic() - self.last_input < 0.5,
             "last_error": _last_error,

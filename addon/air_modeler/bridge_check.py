@@ -218,7 +218,7 @@ class Check:
             self.connect()
             self.stage = "context_connected"
         elif self.stage == "context_connected" and self.ready and self.module.bridge.ui_state()[0] == "Connected":
-            self.send({"type": "command", "payload": {"id": str(uuid4()), "action": "set_mode", "mode": "ROTATE", "axis": "X"}})
+            self.send({"type": "command", "payload": {"id": str(uuid4()), "action": "set_mode", "mode": "EXTRUDE"}})
             self.stage = "unsupported"
         elif self.stage == "unsupported" and "not implemented" in self.last_status:
             print("PASS unsupported modeling action is visibly rejected", flush=True)

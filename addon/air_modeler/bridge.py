@@ -1,9 +1,12 @@
-"""Main-thread, nonblocking modal TCP client. No scene data lives in this runtime."""
+"""One main-thread controller owns transport, gesture preview and passive drawing."""
 
 import errno
 import select
 import socket
 import time
+from types import SimpleNamespace
+
+from . import viewport
 
 import bpy
 from bpy.app.handlers import persistent
@@ -17,6 +20,11 @@ _runtime = None
 _state = "Disconnected"
 _message = "Start the companion, then Connect"
 _last_error = None
+_needs_release = False
+
+
+def dragging():
+    return _runtime is not None and _runtime.drag is not None
 
 
 def ui_state():
@@ -70,10 +78,18 @@ class Client:
         self.next_poll = 0
         self.tracking = False
         self.last_input = 0
+        self.last_present = 0
+        self.cursor = None
+        self.hovered = None
+        self.drag = None
+        self.phase = "NEEDS_RELEASE" if _needs_release else "IDLE"
+        self.seen_gestures = set()
+        self.draw_handler = None
         try:
             result = self.sock.connect_ex(protocol.ADDRESS)
             if result not in (0, errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EALREADY, errno.EISCONN):
                 raise OSError(result, "Could not connect to companion at 127.0.0.1:8765")
+            self.draw_handler = bpy.types.SpaceView3D.draw_handler_add(viewport.draw, (self,), 'WINDOW', 'POST_PIXEL')
         except Exception:
             self.sock.close()
             raise
@@ -91,6 +107,10 @@ class Client:
         return dict(window=window, area=area, region=region, scene=window.scene, view_layer=window.view_layer)
 
     def close(self):
+        self.cancel_drag()
+        if self.draw_handler is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(self.draw_handler, 'WINDOW')
+            self.draw_handler = None
         if self.timer is not None:
             try:
                 self.wm.event_timer_remove(self.timer)
@@ -102,6 +122,8 @@ class Client:
         self.channel = protocol.Channel()
         self.session = protocol.Session("client")
         self.tracking = False
+        self.cursor = self.hovered = None
+        self.seen_gestures.clear()
 
     def error(self, error):
         global _last_error, _message
@@ -109,36 +131,191 @@ class Client:
         _message = "Input rejected"
         self.next_status = 0
 
+    def target(self):
+        if self.drag is None:
+            return None
+        return next((obj for obj in bpy.data.objects if obj.session_uid == self.drag.target_id), None)
+
+    def cancel_drag(self):
+        global _needs_release
+        obj = self.target()
+        if obj is not None:
+            obj.matrix_world = self.drag.baseline
+        self.drag = None
+        self.phase = "NEEDS_RELEASE"
+        _needs_release = True
+        self.next_status = 0
+
+    def observe(self, uv):
+        self.cursor = uv
+        self.tracking = True
+        self.last_present = self.last_input = time.monotonic()
+        hit, _ = viewport.pick(self.context(), viewport.mapping(self.context()), uv)
+        self.hovered = hit[0].name if hit else None
+
+    def preview(self, uv):
+        obj = self.target()
+        if obj is None:
+            self.cancel_drag()
+            return
+        drag = self.drag
+        current = viewport.plane_point(drag.view, uv, drag.point, drag.normal)
+        if current is None:
+            return
+        delta = current - drag.grab
+        if delta.length > drag.max_delta:
+            return
+        matrix = drag.baseline.copy()
+        matrix.translation += delta
+        obj.matrix_world = matrix
+
+    def gesture(self, kind, payload):
+        global _needs_release, _last_error, _message
+        now = time.monotonic()
+        if kind == "hand_frame":
+            self.last_input = now
+            if not payload["present"]:
+                self.tracking, self.hovered = False, None
+                return
+            self.observe((payload["u"], payload["v"]))
+            if self.phase == "NEEDS_RELEASE" and not payload["pinching"]:
+                self.phase, _needs_release = "IDLE", False
+            if self.drag and payload["pinching"]:
+                self.preview(self.cursor)
+            return
+        identifier = payload["gesture_id"]
+        if kind == "gesture_start":
+            if identifier in self.seen_gestures:
+                return
+            if len(self.seen_gestures) >= 4096:
+                raise protocol.SessionFull("Gesture history full; reconnect")
+            self.seen_gestures.add(identifier)
+            if self.phase != "IDLE":
+                return
+            context = self.context()
+            with bpy.context.temp_override(**context):
+                if bpy.context.mode != "OBJECT":
+                    self.error("MOVE requires Object Mode")
+                    self.cancel_drag()
+                    return
+            uv = payload["u"], payload["v"]
+            view = viewport.mapping(context)
+            hit, rejected = viewport.pick(context, view, uv)
+            self.observe(uv)
+            if hit is None:
+                self.error("Unsupported target: use an editable unparented mesh without modifiers, constraints or animation" if rejected else "Pinch missed; release before trying again")
+                self.cancel_drag()
+                return
+            obj, point = hit
+            normal = view[1].view_matrix.inverted().col[2].xyz.normalized()
+            grab = viewport.plane_point(view, uv, point, normal)
+            if grab is None:
+                self.cancel_drag()
+                return
+            for selected in context["view_layer"].objects:
+                if selected.select_get():
+                    selected.select_set(False)
+            obj.select_set(True)
+            context["view_layer"].objects.active = obj
+            self.drag = SimpleNamespace(identifier=identifier, target_id=obj.session_uid,
+                                        baseline=obj.matrix_world.copy(), view=view,
+                                        point=point, normal=normal, grab=grab,
+                                        max_delta=max(100, (point - viewport.ray(view, uv)[0]).length * 10))
+            self.phase = "DRAGGING"
+            _last_error, _message = None, "MOVE: release to commit; Escape to cancel"
+            return
+        if not self.drag or identifier != self.drag.identifier:
+            return
+        if kind == "gesture_cancel":
+            self.cancel_drag()
+            _message = "Cancelled: " + payload["reason"]
+        elif kind == "gesture_end":
+            # End carries the release-onset position, even when it differs from
+            # the last frame. It is itself a fresh valid observation.
+            self.observe((payload["u"], payload["v"]))
+            self.preview(self.cursor)
+            obj = self.target()
+            if obj is None:
+                return
+            baseline = self.drag.baseline.copy()
+            final = obj.matrix_world.translation.copy()
+            obj.matrix_world = baseline
+            name = obj.name
+            changed = (final - baseline.translation).length > 1e-6
+            self.drag = None
+            self.phase, _needs_release = "IDLE", False
+            if changed:
+                with bpy.context.temp_override(**self.context()):
+                    result = bpy.ops.air_modeler.commit_move("EXEC_DEFAULT", True, target_name=name, translation=final)
+                if result != {"FINISHED"}:
+                    self.cancel_drag()
+                    self.error("MOVE commit failed; baseline restored")
+                    return
+            _last_error, _message = None, "MOVE committed" if changed else "MOVE unchanged"
+
     def handle(self, event):
         global _message, _last_error
         kind, payload = event["type"], event["payload"]
-        if kind == "command":
-            if payload["action"] != "spawn":
-                self.error(f"{payload['action']} is not implemented in this milestone")
+        self.next_status = 0
+        try:
+            if kind != "command":
+                self.gesture(kind, payload)
                 return
-            try:
-                with bpy.context.temp_override(**self.context()):
+            action = payload["action"]
+            if self.drag and action in {"spawn", "set_mode"}:
+                raise RuntimeError("Release or cancel the active drag first")
+            with bpy.context.temp_override(**self.context()):
+                if action == "spawn":
                     result = bpy.ops.air_modeler.create_primitive("EXEC_DEFAULT", True, shape=payload["shape"])
-                if result != {"FINISHED"}:
-                    raise RuntimeError("Spawn operator did not finish")
-                _message = f"Created {payload['shape']}"
-                _last_error = None
-                self.next_status = 0
-            except (RuntimeError, ReferenceError, TypeError) as exc:
-                self.error(exc)
-        else:
-            if kind == "hand_frame":
-                self.tracking = payload["present"]
-                self.last_input = time.monotonic()
-            self.error("Hand interaction is not implemented in this milestone")
+                    if result != {"FINISHED"}:
+                        raise RuntimeError("Spawn operator did not finish")
+                    _message = f"Created {payload['shape']}"
+                elif action == "cancel":
+                    self.cancel_drag()
+                    _message = "Cancelled; release hand to rearm"
+                elif action == "undo":
+                    if self.drag:
+                        self.cancel_drag()
+                    if not bpy.ops.ed.undo.poll():
+                        raise RuntimeError("Nothing available to undo")
+                    bpy.ops.ed.undo()
+                    self.hovered = None
+                    _message = "Undo completed"
+                elif payload["mode"] == "MOVE":
+                    _message = "MOVE ready"
+                else:
+                    raise RuntimeError(f"{payload['mode']} is not implemented in this milestone")
+            _last_error = None
+        except protocol.SessionFull:
+            raise
+        except (RuntimeError, ReferenceError, TypeError, ValueError) as exc:
+            if self.drag and kind.startswith("gesture_"):
+                self.cancel_drag()
+            self.error(exc)
+
+    def check_tracking(self, now):
+        if now - self.last_input >= .5:
+            self.tracking, self.hovered = False, None
+        if self.drag:
+            context = self.context()
+            with bpy.context.temp_override(**context):
+                if bpy.context.mode != "OBJECT":
+                    raise RuntimeError("Left Object Mode; drag cancelled")
+            obj = self.target()
+            if obj is None or not viewport.eligible(obj, context):
+                self.cancel_drag()
+                self.error("Drag target disappeared or became unsupported")
+            elif now - self.last_present >= .5:
+                self.cancel_drag()
+                self.error("Tracking lost or stale for 0.5 seconds; release to rearm")
 
     def status(self):
         context = self.context()
         active = context["view_layer"].objects.active
         selected = active.name if active is not None and active.select_get(view_layer=context["view_layer"]) else None
         return {"type": "status", "payload": {
-            "mode": "MOVE", "phase": "IDLE", "selected_object": selected,
-            "hovered_object": None,
+            "mode": "MOVE", "phase": self.phase, "selected_object": selected,
+            "hovered_object": self.hovered,
             "tracking": self.tracking and time.monotonic() - self.last_input < 0.5,
             "last_error": _last_error,
         }}
@@ -147,6 +324,7 @@ class Client:
         global _state, _message
         self.context()  # Stop cleanly if the captured UI/scene context went away.
         now = time.monotonic()
+        self.check_tracking(now)
         if self.session.session_id is None and now > self.deadline:
             raise ConnectionError("Connection/hello timed out; start the companion and reconnect")
         if self.connecting:
@@ -167,7 +345,7 @@ class Client:
                 previous = self.session.session_id
                 event, _ = self.session.accept(message)
                 if previous is None and self.session.session_id is not None:
-                    _state, _message = "Connected", "Ready for spawn commands"
+                    _state, _message = "Connected", "MOVE ready; open hand before pinching"
                 if event is not None:
                     self.handle(event)
             except protocol.SessionFull:
@@ -223,6 +401,16 @@ class AIRMODELER_OT_connect(bpy.types.Operator):
             except (OSError, RuntimeError, ReferenceError, BufferError, protocol.SessionFull) as exc:
                 disconnect("Connection stopped; reconnect explicitly", str(exc))
                 return {"CANCELLED"}
+        if self.runtime.drag and event.type != "TIMER":
+            if event.type == "ESC" and event.value == "PRESS":
+                self.runtime.cancel_drag()
+                return {"RUNNING_MODAL"}
+            if event.type == "Z" and event.value == "PRESS" and (event.ctrl or event.oskey):
+                self.runtime.handle({"type": "command", "payload": {"action": "undo"}})
+                return {"RUNNING_MODAL"}
+            # Block viewport navigation and competing editing shortcuts while
+            # the fixed mapping owns a preview. Network cancel/undo still work.
+            return {"RUNNING_MODAL"}
         return {"PASS_THROUGH"}
 
     def cancel(self, context):

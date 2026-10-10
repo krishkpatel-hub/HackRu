@@ -150,5 +150,28 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(list(queue_server._events), [])
 
 
+class ImmediateReconnectTests(unittest.TestCase):
+    def test_accept_reaps_closed_old_peer_before_rejecting_new_peer(self):
+        # Deterministic writer-tick regression: old EOF is pending at exactly
+        # the same tick as a queued new connection, without a sleeping thread.
+        from unittest.mock import Mock
+        server = BridgeServer(log=lambda _: None)
+        old = Mock()
+        old.recv.return_value = b''
+        new = Mock()
+        new.recv.side_effect = BlockingIOError
+        listener = Mock()
+        listener.accept.return_value = (new, ('127.0.0.1', 12345))
+        server._listener = listener
+        server._client = old
+        server._session = Session('server')
+        server._channel = Channel()
+        server._tick()
+        old.close.assert_called_once()
+        new.close.assert_not_called()
+        self.assertIs(server._client, new)
+        self.assertIsNone(server._session.session_id)
+
+
 if __name__ == "__main__":
     unittest.main()

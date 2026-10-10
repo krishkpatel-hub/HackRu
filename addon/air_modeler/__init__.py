@@ -1,22 +1,22 @@
-"""Air Modeler's first milestone: undoable mesh primitive creation."""
+"""Air Modeler: typed spawning and viewport pinch-and-drag MOVE."""
 
 bl_info = {
     "name": "Air Modeler",
     "author": "HackRU Team",
-    "version": (0, 2, 0),
+    "version": (0, 3, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > Air Modeler",
-    "description": "Create four mesh primitives at the 3D cursor",
+    "description": "Hand cursor, picking, undoable MOVE and primitive creation",
     "category": "Add Mesh",
 }
 
 import bpy
 
-from .operators import AIRMODELER_OT_create_primitive
+from .operators import AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_move
 from .panel import AIRMODELER_PT_primitives
 from . import bridge
 
-_CLASSES = (AIRMODELER_OT_create_primitive, bridge.AIRMODELER_OT_connect,
+_CLASSES = (AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_move, bridge.AIRMODELER_OT_connect,
             bridge.AIRMODELER_OT_disconnect, AIRMODELER_PT_primitives)
 
 

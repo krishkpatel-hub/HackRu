@@ -1,0 +1,2 @@
+# Optional audio; typed commands require no third-party dependencies.
+-r companion/voice/requirements.txt

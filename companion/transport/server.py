@@ -105,6 +105,17 @@ class BridgeServer:
         except BlockingIOError:
             pass
         else:
+            # A reconnect can reach accept before this tick observes the old
+            # client's EOF. Reap a closed peer without consuming live bytes.
+            if self._client is not None:
+                try:
+                    closed = self._client.recv(1, socket.MSG_PEEK) == b""
+                except (BlockingIOError, InterruptedError):
+                    closed = False
+                except OSError:
+                    closed = True
+                if closed:
+                    self._disconnect("Disconnected: old peer closed before reconnect")
             if self._client is not None:
                 connection.close()  # One client, including the handshake phase.
             else:

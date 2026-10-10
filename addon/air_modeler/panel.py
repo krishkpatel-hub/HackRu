@@ -22,6 +22,12 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         box = layout.box()
         state, message, error, running = bridge.ui_state()
         box.label(text=f"Bridge: {state}")
+        box.label(text="MOVE: pinch, drag, release")
+        box.label(text="Rotate / Scale / Extrude: not implemented")
+        if bridge._runtime is not None:
+            box.label(text=f"Phase: {bridge._runtime.phase}")
+            box.label(text=f"Hover: {bridge._runtime.hovered or '—'}")
+            box.label(text="Tracking" if bridge._runtime.tracking else "No hand")
         row = box.row(align=True)
         row.operator("air_modeler.connect")
         row.operator("air_modeler.disconnect")

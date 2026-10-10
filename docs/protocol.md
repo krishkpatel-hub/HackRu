@@ -1,6 +1,6 @@
 # Air Modeler v1 local bridge
 
-The root README remains the architecture agreement. This document records its executable details for the connection/status/spawn milestone. The single standard-library implementation is `shared/protocol.py`; `tools/package_addon.py` copies its bytes to `air_modeler/_protocol.py` **inside the ZIP only**. Never edit or maintain a second validator source.
+The root README remains the architecture agreement. This document records its executable details for the connection/status/spawn and MOVE milestones. The single standard-library implementation is `shared/protocol.py`; `tools/package_addon.py` copies its bytes to `air_modeler/_protocol.py` **inside the ZIP only**. Never edit or maintain a second validator source.
 
 ## Endpoint and handshake
 
@@ -37,7 +37,7 @@ Blender → companion: `status`. Both directions send the initial `hello` as des
 
 Coordinates must be finite numbers in `[0, 1]`; boolean values are not coordinates. Only absent `hand_frame` observations (`present: false`) may use null coordinates, with both `u` and `v` null. Visible/start/end coordinates cannot be null. Text fields allow at most 1024 Unicode characters and must encode as UTF-8. Extra payload fields are rejected.
 
-Only **spawn** currently changes a scene. Other valid actions/hand events are reported as not implemented. They are not silently accepted as successful modeling operations. Their schemas are ready for teammate integration; no device services are imported by the synthetic runner.
+**Spawn and MOVE** change the scene. Matching gesture start/end/cancel events control MOVE; frames only report/update an existing preview. Commands `cancel`, `undo`, and `set_mode: MOVE` are implemented. ROTATE, SCALE, and EXTRUDE remain visibly unsupported. See [MOVE handoff](move_handoff.md) for lifecycle, camera setup, and validation.
 
 Example status (at most 4 Hz while idle, also after received actions/errors):
 
@@ -45,7 +45,9 @@ Example status (at most 4 Hz while idle, also after received actions/errors):
 {"v":1,"type":"status","session_id":"9a6d7dd7-1ee2-46a4-95cb-cf34d2fb92a6","seq":2,"payload":{"mode":"MOVE","phase":"IDLE","selected_object":"Air Cube","hovered_object":null,"tracking":false,"last_error":null}}
 ```
 
-`MOVE`/`IDLE` describe the default reserved interaction state, not implemented movement. `selected_object` is the selected active object's name or null; `hovered_object` is null because picking is not implemented. `tracking` is false unless a present hand observation arrived within the last 0.5 seconds; it does not imply that hand manipulation works. `last_error` is null or a readable error; a successful spawn clears a previous error. Status is state reporting, not a per-command acknowledgement.
+`mode` is MOVE; `phase` is the actual IDLE, DRAGGING, or NEEDS_RELEASE state. `selected_object` is the selected active object's name or null. `hovered_object` is the nearest eligible mesh under the cursor or null; passive hover never selects. `tracking` requires a present observation within 0.5 seconds. `last_error` is a readable rejection/recovery diagnostic, cleared by a successful command or gesture. Status is state reporting, not a per-command acknowledgement.
+
+A start uses its own coordinates and locks a target and fixed view plane. Frames preview from the original transform only; matching end honors final coordinates and creates one undoable MOVE. Absent frames freeze immediately; 0.5 seconds without a present observation cancels, including stopped streams. Interruptions restore baseline and require a fresh present, non-pinching frame before another start. H independently enforces physical release; its `pinching` flag means gesture-active, never permission to start editing. Duplicate starts are remembered per session (4096 limit); mismatched ends/cancels are ignored. Spawn and mode changes during drag are rejected. Cancel/Undo/Escape and cleanup behavior are detailed in the handoff.
 
 ## Teammate callback
 
@@ -75,7 +77,7 @@ accepted = emit({
 - Maximum encoded line: 8192 bytes excluding newline. Overlong lines are discarded through the next newline, then normal decoding resumes. Each socket read takes at most 8192 bytes; complete buffered lines drain before another read. Partial-line storage is bounded to 8192 bytes.
 - Blender decodes/dispatches at most four lines per timer tick and uses nonblocking writes with retained partial-write offsets. The server accepts at most one connection, processes at most 16 incoming lines and queues at most four callback events per iteration. Outgoing bytes are capped at 64 KiB; backpressure overflow disconnects instead of blocking.
 - Command IDs are deduplicated in Blender for the entire session, including failed/unsupported commands. A duplicate with a newer sequence is consumed without a second action. At 4096 distinct command IDs, close the session rather than evict IDs and risk replay. Reconnect explicitly to continue.
-- Clean EOF, server shutdown, connection failure, disable, file load, or invalid captured viewport context closes the socket and removes the modal timer. Reconnect is a user action; there is no automatic reconnect or spawn retry.
+- Clean EOF, server shutdown, connection failure, disable, file load, or invalid captured viewport context restores any active preview, closes the socket, and removes the modal timer and cursor draw handler. Reconnect is a user action; there is no automatic reconnect or spawn retry.
 - Disconnect destroys session sequence/dedup state, partial receive data, pending writes, and queued callback input. The server rejects input while offline. Fresh sessions never replay prior pending events. TCP cannot retract an action already executed before a disconnect; inspect the scene/status if delivery was interrupted.
 - Session state is runtime-only. Blender captures the initiating window/viewport/region and scene/view-layer names, re-resolves them after Undo, and uses an explicit context override for the existing undoable spawn operator. Changing/closing that viewport or switching its scene/view layer stops the connection. Edit Mode rejects spawn without switching modes or creating geometry.
 
@@ -84,7 +86,7 @@ accepted = emit({
 From `/Users/krishpatel/HackRu`:
 
 ```sh
-python3 -m companion.main
+.venv/bin/python -m companion.main
 ```
 
 Connect from Blender's Air Modeler panel and wait for `READY`. Then enter:
@@ -98,4 +100,4 @@ status
 quit
 ```
 
-This is a strict development command syntax that constructs spawn payloads and UUIDs; it is not V's natural-language parser. `quit`, EOF, or Ctrl-C shuts down the server and discards pending input. `QUEUED` is not an acknowledgement; observe Blender and `STATUS` output. Port conflicts are reported without terminating another process. No camera/audio packages, model downloads, or API keys are required.
+Typed input now reuses V's parser and UUID emitter: `create cube`, `create sphere`, `create cylinder`, `create triangular prism`, `move`, `cancel`, and `undo`. Strict `spawn <shape>` aliases are translated to V's create phrase. `quit`, EOF, or Ctrl-C stops workers and transport; no stale replay occurs. `QUEUED` is not an acknowledgement. No camera/audio packages or keys are needed for typed/synthetic operation. Optional `--camera N`, `--mic`, and `--synthetic` are documented in [MOVE handoff](move_handoff.md); discover N through the hands module before selecting it.

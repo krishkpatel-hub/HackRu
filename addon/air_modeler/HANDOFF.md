@@ -1,3 +1,7 @@
+# Current milestone: MOVE (0.3.0)
+
+See [P’s MOVE integration handoff](../../docs/move_handoff.md) for the current package, environment, camera permission blocker, launch steps, callback/config, checks and limitations. The primitive/bridge record below is retained as historical evidence for 0.1/0.2; its unsupported-feature statements and version-specific instructions are superseded by that handoff.
+
 # Blender primitive and local bridge milestones
 
 ## Delivered

@@ -62,6 +62,22 @@ def test_invalid_mapping_references_or_settings_rejected(kwargs):
     with pytest.raises(ValueError): planes.mapping((1, 0, 0), **kwargs)
 
 
-@pytest.mark.parametrize('delta', [(float('nan'), 0), (0, float('inf')), (True, 0), (1.01, 0), (0, -1.01)])
+@pytest.mark.parametrize('delta', [(float('nan'), 0), (0, float('inf')), (True, 0)])
 def test_invalid_motion_rejected(delta):
     with pytest.raises(ValueError): planes.mapping((1, 0, 0)).displacement(*delta)
+
+
+def test_short_loss_virtual_reference_can_continue_then_reverse_at_bound():
+    m = planes.mapping((1, 0, 0), plane='XZ', axis='X')
+    accepted_delta = .8
+    recovered_palm = .05
+    virtual_reference = recovered_palm - accepted_delta
+    assert m.displacement(recovered_palm - virtual_reference, 0) == pytest.approx((3.2, 0, 0))
+    assert m.displacement(.75 - virtual_reference, 0) == pytest.approx((4, 0, 0))
+    assert m.displacement(0 - virtual_reference, 0) == pytest.approx((3, 0, 0))
+
+
+def test_huge_finite_delta_clamps_without_nan_or_losing_direction():
+    m = planes.mapping((1, 0, 0), plane='XY')
+    assert m.displacement(1e308, -1e308) == pytest.approx((8**.5, 8**.5, 0))
+    assert m.displacement(-1e308, 0) == (-4, 0, 0)

@@ -50,17 +50,21 @@ class Mapping:
         if any(isinstance(x, bool) or not isinstance(x, (int, float))
                or not math.isfinite(x) for x in (du, dv)):
             raise ValueError('Palm displacement must be finite')
-        # Inputs are differences of normalized positions and must stay in range.
-        if abs(du) > 1 or abs(dv) > 1:
-            raise ValueError('Palm displacement must be within normalized viewport bounds')
-        vector = tuple(self.sensitivity * (h * du - v * dv)
+        # A short-loss reanchor may put the virtual reference outside [0, 1].
+        # Its accumulated delta can exceed one even though observations cannot.
+        vector = tuple(h * du - v * dv
                        for h, v in zip(self.horizontal, self.vertical))
         if self.axis != 'NONE':
             vector = tuple(x if AXES[self.axis][i] else 0. for i, x in enumerate(vector))
-        length = math.sqrt(_dot(vector, vector))
-        if length > self.maximum:
-            vector = tuple(x * self.maximum / length for x in vector)
-        return vector
+        peak = max(abs(x) for x in vector)
+        if peak == 0:
+            return vector
+        # Normalize before applying sensitivity to avoid overflow for huge but
+        # finite deltas. Cardinal plane axes never sum the two input components.
+        direction = tuple(x / peak for x in vector)
+        length = math.hypot(*direction)
+        distance = min(self.maximum, self.sensitivity * peak * length)
+        return tuple(x / length * distance for x in direction)
 
 
 def mapping(normal, view_right=(1., 0., 0.), view_up=(0., 1., 0.),

@@ -1,12 +1,95 @@
-# Air Modeler — HackRU Architecture Agreement
+# Air Modeler — HackRU
 
-## Scope and status
+## Implemented MVP and verification
 
-We are a three-person team planning a Blender add-on controlled by hand gestures and voice. Blender will supply modeling, geometry, and the viewport; a separate local Python companion will handle webcam tracking and voice recognition. This README records the planned agreement, not working features.
+Air Modeler 0.5.0 implements sidebar/voice/typed creation of cubes, UV spheres, cylinders and triangular prisms; pinch MOVE in the viewport plane; world-axis ROTATE; uniform SCALE; outward single-face EXTRUDE; cancel and Undo. Completed gestures return to MOVE. A separate Python companion owns camera/audio and a local TCP bridge; Blender owns all scene edits.
 
-The MVP will support voice spawning of cubes, UV spheres, cylinders, and triangular prisms; default pinch-and-drag movement in the current viewport plane; voice-selected rotation around world X/Y/Z, uniform scaling, and single-face extrusion. Release will commit, cancel will restore the pre-gesture state, and undo will reverse completed actions. Extrusion will start with cube and prism faces. Arbitrary air-drawn mesh reconstruction, physics, and a custom renderer are outside scope.
+Use Object Mode and visible, editable, unparented meshes without constraints, animation or enabled modifiers. EXTRUDE additionally requires a local single-user mesh, no shape keys/custom normals, a positive nonsingular transform, closed consistently oriented manifold geometry, and a flat convex triangular or quad supporting face. Cube faces, prism caps/sides and eligible newly extruded caps are supported. Reflected transforms, recessed/nonplanar faces, inward/multiple-face extrusion and arbitrary geometry reconstruction are outside this demo. See [geometry restrictions](docs/extrusion_handoff.md).
 
-Runtime versions, dependency versions, and launch commands: **to be verified**. No implementation or runtime checks are claimed by this agreement.
+Automated Python checks and synthetic Blender geometry/Undo checks pass. H's live tracker and V's standalone live speech reports do **not** establish a combined live 0.5.0 demo pass. See [demo evidence and rehearsal](docs/demo_handoff.md) for exact revisions, remaining device checks and presentation checklist. Sponsor attribution remains unconfirmed; V verified realtime API access.
+
+## Reproducible companion setup
+
+Run in `/Users/krishpatel/HackRu`. Verified here: macOS arm64, CPython **3.12.15**, Blender **5.2.2 LTS** (its own Python 3.13.13). The runner console supports macOS/Linux; Windows console input is not implemented. Other Blender/platform versions remain unverified. Reuse the existing `.venv` after checking its interpreter; only run the creation command on a fresh setup, with Python 3.12 installed:
+
+```sh
+cd /Users/krishpatel/HackRu
+python3.12 -m venv .venv
+.venv/bin/python --version
+.venv/bin/python -m pip install -r requirements.txt -r requirements-voice.txt
+.venv/bin/python -m pip install pytest==9.1.1
+.venv/bin/python -m pip check
+.venv/bin/python -m companion.hands.model
+```
+
+The existing locally provisioned uv environment lacks pip; reuse it without recreating it. Its dependency check is `UV_CACHE_DIR=/tmp/hackru-uv-cache /tmp/hackru-uv/bin/uv pip check --python .venv/bin/python`. The portable pip commands above apply to a fresh standard-library venv.
+
+Verified installed pins: MediaPipe 1.1.0, opencv-contrib-python 4.11.0.86, NumPy 1.26.4, ElevenLabs 2.71.0, sounddevice 0.5.6, httpx 0.28.1, websockets 17.2; pytest 9.1.1 for checks. Do not install a second OpenCV distribution alongside opencv-contrib-python. Install these outside Blender. Typed-only operation needs no third-party dependencies.
+
+Model path: `/Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task`. Tested SHA-256: `fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1`. The downloader warns on mismatch because its upstream URL uses `latest`; investigate a changed checksum before the demo. The launch commands below pass the path explicitly, overriding `HAND_LANDMARKER_MODEL`.
+
+Discover devices on the actual demo laptop:
+
+```sh
+.venv/bin/python -m companion.hands --list-cameras
+.venv/bin/python -m companion.voice --list-devices
+read 'CAMERA_INDEX?Camera index from the working local camera probe: '
+read 'MIC_INDEX?Input microphone index from the local device list: '
+```
+
+These prompts use macOS zsh. Camera discovery probes indices 0–4. Grant Camera/Microphone access to the launching Terminal/IDE under System Settings → Privacy & Security, then restart that application if needed. Close competing capture applications. Select a working camera and an **input** microphone; indices change with attached phones/headsets. H's camera index 2 is not a portable default. The integrated hands worker always sets `preview=False`, avoiding macOS OpenCV GUI calls on a worker thread.
+
+For live voice only, privately enter the **ElevenLabs API key** in the companion terminal. Do not paste it into a command, chat, file, Blender console or diagnostic output:
+
+```sh
+set +x
+read -rs 'ELEVENLABS_API_KEY?ElevenLabs API key (hidden): '
+export ELEVENLABS_API_KEY
+printf '\n'
+```
+
+The value is hidden and absent from shell history. Launch Blender separately from the key-bearing shell; after the companion exits, `unset ELEVENLABS_API_KEY`. Keep terminal recording/debug tracing off. Realtime account access and microphone permission still need validation on the demo laptop.
+
+## Package, install and launch
+
+```sh
+.venv/bin/python tools/package_addon.py
+```
+
+ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.5.0**. Companion/PTT changes do not change that version. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.5.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
+
+Choose **one** command after selecting the local device variables above:
+
+```sh
+# Hands plus typed commands (no API key needed)
+.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task
+
+# Hands plus hands-free live voice, with typed fallback
+.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --mic --device "$MIC_INDEX"
+
+# Hands plus push-to-talk live voice, with typed fallback
+.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --mic --device "$MIC_INDEX" --push-to-talk
+```
+
+In a 3D viewport, open the N sidebar → Air Modeler → Connect. Wait for companion `READY` before commands. `Hands config:` confirms camera/model and preview False. For voice, wait for `Scribe session ready. Opening microphone; typed commands remain active.` as well. `status` shows Blender state/errors; `help` lists commands. `QUEUED` means queued, not successful scene execution: inspect Blender/status. `quit`, `/quit`, EOF or Ctrl+C stops workers and bridge.
+
+PTT starts **PTT MUTED**. Enter `/talk` → **PTT ARMED**, speak one complete command, then `/end` → **PTT MUTED**. Wait for `Committed with timestamps:` and the visible result before the next turn. Repeated controls are harmless; state changes print once, and `status` prints the current gate. Without `--mic --push-to-talk`, controls explain that PTT is unavailable. Hands-free mode uses speech silence detection instead.
+
+PTT gates audio at capture callbacks (100 ms blocks), replacing muted audio with zero PCM; the microphone stays open and silence is transmitted. The first queued inactive block after active audio triggers one manual commit. Buffered active audio can finish after `/end`, and the intended delayed timestamped transcript can execute while muted. Partial/plain transcripts never execute; timestamped duplicates are suppressed by the voice service. `/end` is not cancellation of already spoken commands. Do not toggle faster than one audio block or start another turn until committed feedback; shutdown stops recognition rather than draining unfinished speech. `PTT ARMED` describes the gate, not microphone health. Restart the companion after a voice startup failure; typed input and hands remain usable.
+
+Common remedies:
+
+- `Cannot listen ... 8765`: close the prior companion; only one server/client is supported.
+- `DISCARDED`/not READY: connect Blender and deliberately reissue the command once ready; offline input is discarded, never replayed.
+- Missing model: run the downloader and verify the explicit path/checksum.
+- Camera unavailable/unauthorized: grant permission and repeat discovery; don't guess another laptop's index.
+- `ELEVENLABS_API_KEY is missing`, auth/quota/terms errors: enter the key privately or fix account access, then restart. Typed commands still work.
+- Microphone unavailable: check permission and input device; integrated voice uses 16 kHz. The standalone voice diagnostic accepts `--sample-rate 48000`, but that flag is not exposed by this runner. If only 48 kHz works, use typed fallback and report the device incompatibility to V/P.
+- `NEEDS_RELEASE`: open the hand visibly before pinching again. Face rejection: use an eligible cube/prism face and inspect the outline/error.
+
+## Architecture agreement (preserved)
+
+The following ownership boundaries and contracts remain the team agreement. Future-tense language in this historical agreement records the original design; the implemented status and launch instructions above supersede its milestone planning.
 
 ## Ownership and collaboration
 

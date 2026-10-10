@@ -1,6 +1,6 @@
 # Air Modeler v1 local bridge
 
-The root README remains the architecture agreement. This document records its executable details for the connection/status/spawn and MOVE milestones. The single standard-library implementation is `shared/protocol.py`; `tools/package_addon.py` copies its bytes to `air_modeler/_protocol.py` **inside the ZIP only**. Never edit or maintain a second validator source.
+The root README contains current setup instructions and the preserved architecture agreement. This document records its executable details for the connection/status/spawn and MOVE milestones. The single standard-library implementation is `shared/protocol.py`; `tools/package_addon.py` copies its bytes to `air_modeler/_protocol.py` **inside the ZIP only**. Never edit or maintain a second validator source.
 
 ## Endpoint and handshake
 
@@ -105,3 +105,5 @@ Typed input now reuses V's parser and UUID emitter: `create cube`, `create spher
 ROTATE uses horizontal displacement around a world axis; SCALE intentionally uses upward vertical displacement to enlarge. Numeric mappings, mode reset, local angle/factor display and generalized commit details are in [Transform handoff](transform_handoff.md). The status schema is unchanged; axis/angle/factor appear locally in the sidebar/cursor text.
 
 EXTRUDE uses the same lifecycle with an isolated geometry preview and separate geometry Undo operator. Original-mesh face picking, eligible-face outline/rejection feedback, outward vertical distance, ownership and restoration are documented in [Extrusion handoff](extrusion_handoff.md). No wire fields or callback signatures changed; face index/distance remain local UI details.
+
+The integrated runner also supports `--mic --push-to-talk`: local `/talk` and `/end` controls share VoiceConfig’s gate and never enter the wire protocol. See [README](../README.md) and [demo handoff](demo_handoff.md) for audio gating, launch and rehearsal details.

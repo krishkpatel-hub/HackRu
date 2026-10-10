@@ -6,7 +6,7 @@ import sys
 import threading
 
 from companion.transport.server import BridgeServer
-from companion.voice.service import emit_command, typed_lines
+from companion.voice.service import VoiceConfig, emit_command, typed_lines
 from shared.protocol import SHAPES
 
 
@@ -26,9 +26,14 @@ def main(argv=None):
     parser.add_argument('--model', help='Optional hand landmarker model path')
     parser.add_argument('--mic', action='store_true', help='Enable optional ElevenLabs microphone worker')
     parser.add_argument('--device', type=int, help='Optional microphone device index')
+    parser.add_argument('--push-to-talk', action='store_true', help='With --mic, /talk arms audio and /end mutes and commits')
     parser.add_argument('--synthetic', action='store_true', help='Accept raw type/payload JSON lines for camera-free gesture testing')
     args = parser.parse_args(argv)
+    if args.push_to_talk and not args.mic:
+        parser.error('--push-to-talk requires --mic')
     stop = threading.Event()
+    gate = threading.Event() if args.push_to_talk else None
+    voice_config = VoiceConfig(device=args.device, push_to_talk_event=gate)
     workers = []
     server = BridgeServer(log=lambda message: print(message, flush=True))
     def worker(name, run):
@@ -51,7 +56,7 @@ def main(argv=None):
         run_hand_tracker(server.emit, stop, config)
     def voice():
         from companion.voice.service import run_voice
-        run_voice(server.emit, stop, {'device': args.device})
+        run_voice(server.emit, stop, voice_config)
     try:
         server.start()
     except OSError as exc:
@@ -62,14 +67,34 @@ def main(argv=None):
         worker('Hands', hands)
     if args.mic:
         worker('Voice', voice)
-    print('Connect in Blender, wait for READY. Type create cube, move, cancel, undo; status; quit.', flush=True)
+    help_text = ('Connect in Blender, wait for READY. Type create cube/sphere/cylinder/triangular prism, '
+                 'rotate x/y/z, scale, extrude, move, cancel, undo; status; help; quit. '
+                 'With --mic --push-to-talk: /talk arms, /end mutes and commits; wait for committed feedback.')
+    print(help_text, flush=True)
+    if gate is not None:
+        print('PTT MUTED', flush=True)
     try:
         for line in typed_lines(sys.stdin, stop):
             text = line.strip()
             if text in {'quit', '/quit'}:
                 break
+            if text in {'/talk', '/end'}:
+                if gate is None:
+                    print('PTT unavailable: launch with --mic --push-to-talk. Typed commands remain active.', flush=True)
+                else:
+                    active = text == '/talk'
+                    changed = gate.is_set() != active
+                    gate.set() if active else gate.clear()
+                    if changed:
+                        print('PTT ARMED' if active else 'PTT MUTED', flush=True)
+                continue
+            if text in {'help', '/help'}:
+                print(help_text, flush=True)
+                continue
             if text == 'status':
                 print(f'session={server.session_id} status={server.last_status} error={server.last_error}', flush=True)
+                if gate is not None:
+                    print('PTT ARMED' if gate.is_set() else 'PTT MUTED', flush=True)
                 continue
             try:
                 event = json.loads(text) if args.synthetic and text.startswith('{') else typed_event(text)
@@ -85,6 +110,8 @@ def main(argv=None):
         pass
     finally:
         stop.set()
+        if gate is not None:
+            gate.clear()
         # Close transport immediately; Blender restores previews even if a
         # native device driver takes time to stop.
         server.close()

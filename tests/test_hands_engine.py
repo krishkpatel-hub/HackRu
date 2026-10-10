@@ -1,5 +1,7 @@
 """Detection-logic tests: no webcam, no OpenCV/MediaPipe needed."""
 import itertools
+import json
+import math
 import sys
 from pathlib import Path
 
@@ -177,3 +179,75 @@ def test_config_validation():
     for bad in ({"pinch_start": 0.7, "pinch_release": 0.5}, {"smoothing": 1.0}, {"nope": 1}, {"emit_hz": 0}):
         with pytest.raises(ValueError):
             HandConfig.from_mapping(bad)
+
+
+# ---- pinch-aware cursor: closing/opening the fingers must not drag the cursor off the target ----
+
+def _frames(spec):
+    """spec: list of (n, ratio0, ratio1, palm_dx0, palm_dx1, tip_drop0, tip_drop1) ramps at 30 fps."""
+    out, i = [], 0
+    for n, r0, r1, x0, x1, d0, d1 in spec:
+        for k in range(n):
+            f = k / max(n - 1, 1)
+            lm = mf.hand(0.5 + x0 + (x1 - x0) * f, 0.5, r0 + (r1 - r0) * f, tip_dropout=d0 + (d1 - d0) * f)
+            out.append((i / 30, {int(a): tuple(b) for a, b in lm.items()}))
+            i += 1
+    return out
+
+
+def _run(spec, **cfg):
+    e = HandEngine(HandConfig.from_mapping(cfg))
+    ev, cur = [], []
+    for t, lm in _frames(spec):
+        ev += e.update(t, lm, mf.ASPECT)
+        cur.append((t, e.cursor, e.gesture_id))
+    return ev, cur
+
+
+OPEN_HOLD = (15, 0.95, 0.95, 0, 0, 0, 0)
+CLOSE = (8, 0.95, 0.12, 0, 0, 0, 0.16)          # fingers close, fingertip drops 0.16 like the real hand
+OPEN = (8, 0.12, 0.95, 0, 0, 0.16, 0)
+
+
+def test_closing_fingers_do_not_move_the_cursor_off_the_aim_point():
+    ev, cur = _run([OPEN_HOLD, CLOSE, (30, 0.12, 0.12, 0, 0, 0.16, 0.16), OPEN, (10, 0.95, 0.95, 0, 0, 0, 0)], smoothing=0.0)
+    (start,), (end,) = types(ev, "gesture_start"), types(ev, "gesture_end")
+    assert (start["payload"]["u"], start["payload"]["v"]) == pytest.approx((0.5, 0.5), abs=0.01)  # the aim, not v=0.66
+    assert (end["payload"]["u"], end["payload"]["v"]) == pytest.approx((0.5, 0.5), abs=0.01)      # no stray while opening
+    held = [c for _, c, g in cur if g]
+    assert held and all(abs(c[0] - 0.5) < 0.01 and abs(c[1] - 0.5) < 0.01 for c in held)
+
+
+def test_palm_motion_still_drags_the_cursor_during_a_pinch():
+    ev, cur = _run([OPEN_HOLD, CLOSE, (30, 0.12, 0.12, 0, 0.2, 0.16, 0.16),
+                    (8, 0.12, 0.95, 0.2, 0.2, 0.16, 0), (10, 0.95, 0.95, 0.2, 0.2, 0, 0)], smoothing=0.0)
+    start, end = types(ev, "gesture_start")[0]["payload"], types(ev, "gesture_end")[0]["payload"]
+    assert end["u"] - start["u"] == pytest.approx(0.2, abs=0.03)        # moved with the hand
+    assert abs(end["v"] - start["v"]) < 0.02                            # and only with the hand
+
+
+def test_relaxed_hand_in_the_band_does_not_freeze_the_cursor_forever():
+    spec = [OPEN_HOLD, (6, 0.95, 0.68, 0, 0, 0, 0), (60, 0.68, 0.68, 0, 0.3, 0, 0)]  # ratio 0.68: between release and approach
+    ev, cur = _run(spec, smoothing=0.0)
+    assert not types(ev, "gesture_start")
+    assert cur[-1][1][0] == pytest.approx(0.8, abs=0.02)                 # follows the hand again after the hold expires
+
+
+def test_real_hand_recording_cursor_stays_put_through_pinch_and_release():
+    fx = json.loads((FIX / "real_still_pinch.json").read_text())
+    e = HandEngine(HandConfig.from_mapping({}))
+    rows, ev = [], []
+    for fr in fx["frames"]:
+        lm = {int(k): tuple(v) for k, v in fr["lm"].items()}
+        ev += e.update(fr["t"], lm, fx["aspect"])
+        rows.append((fr["t"], e.cursor, e.gesture_id, e.ratio, lm))
+    starts = types(ev, "gesture_start")
+    assert len(starts) == 2 and len(types(ev, "gesture_end")) == 2 and not types(ev, "gesture_cancel")
+    for s in starts:
+        p, g = s["payload"], s["payload"]["gesture_id"]
+        pre = [r for r in rows if r[2] is None and r[3] is not None and r[3] >= 0.9 and r[0] < max(x[0] for x in rows if x[2] == g)]
+        aim = [r for r in pre if r[0] < min(x[0] for x in rows if x[2] == g)][-1][4][8]
+        # the old fingertip cursor started ~0.10-0.13 away from where the tip was before the fingers closed
+        assert math.hypot(p["u"] - aim[0], p["v"] - aim[1]) < 0.06
+        excursion = max(math.hypot(r[1][0] - p["u"], r[1][1] - p["v"]) for r in rows if r[2] == g)
+        assert excursion < 0.08                                          # old logic: 0.106-0.118

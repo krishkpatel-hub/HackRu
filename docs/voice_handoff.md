@@ -180,6 +180,10 @@ actionable messages; the API key is read only from the environment.
    this key can perform realtime recognition. Inspect dashboard usage afterward
    to confirm charges use the sponsored allowance. A missing key, auth error,
    `quota_exceeded`, or `unaccepted_terms` message identifies what to fix.
+   In Developers → Analytics → Usage, select workspace data and filter by the
+   test's time range, product, and API key. Compare allowance before/after and
+   confirm the requests appear in that workspace's Request Log. A successful
+   transcript alone does not establish sponsorship coverage.
 
 ## Verification performed and limitations
 
@@ -211,16 +215,32 @@ git diff --check
   dispatch, paired duplicate suppression, repeated commands, and resource close.
   This smoke caught and fixed a startup event-handler registration race.
 - Dependency consistency, focused lint, and whitespace checks passed.
+- Follow-up physical capture on the MacBook Pro microphone (device 1): mono
+  int16 at 16 kHz, a two-second capture in a child with an eight-second hard
+  deadline. In the user's Terminal it delivered 19 callbacks / 30,400 frames,
+  peak 2,734, zero status errors, an active stream during capture, and a closed
+  stream afterward (`CAPTURE_AND_CLEAN_CLOSE_PASS`). A separate local run also
+  passed with 20 callbacks / 32,000 frames. No audio was saved or transmitted.
+- Follow-up voice tests: all 28 unittest tests passed. The actual microphone CLI
+  with the key deliberately absent reported the missing key and continued to
+  emit typed `undo`, `create cube`, and another `create cube`; the two cube
+  commands had distinct UUIDs and the process exited successfully.
 
-**Pending live checks:** no API key was available in this session, so sponsored
-entitlement, quota, live transcripts, venue accuracy/latency, and actual API close
-are unverified. A local native microphone-format/capture probe stalled in
-CoreAudio and was terminated; device enumeration alone does not verify capture.
-Grant microphone permission to the launching app/Python entry as shown by macOS,
-then repeat a short capture and Ctrl+C rehearsal. Native OS permission/driver
-calls can block outside Python's interruptible waits; resolve prompts before the
-demo. Permission-denial reporting and shutdown are tested with fakes, not claimed
-as physical microphone passes.
+**Pending live checks:** an authenticated realtime rehearsal has not yet been
+completed. The user will load the sponsored key privately in Terminal; its value
+is neither requested in chat nor logged. Sponsored workspace/allowance, the live
+command checklist, partial suppression, deduplication with live events,
+intentional spoken repetition, push-to-talk in venue noise, and actual API close
+after Ctrl+C remain unverified. This is the unresolved verification prerequisite;
+physical microphone capture is now confirmed. The earlier native probe stalled
+and was terminated; the bounded
+follow-up above now verifies physical capture and clean microphone close.
+An initial zero-frame follow-up result came from a buffer conversion bug in the
+temporary diagnostic, which was corrected; production already converts the raw
+buffer to bytes. No production fix was required. Use the audio virtualenv:
+system `python3` on this machine does not have sounddevice installed. Native OS
+permission/driver calls can block outside Python's interruptible waits, so keep
+capture probes bounded. Permission-denial reporting remains tested with fakes.
 
 Typed console polling supports macOS/Linux; Windows console input is not
 implemented. A single committed segment must contain one whole command; multiple
@@ -235,5 +255,6 @@ Official sources consulted on 2026-10-10:
 - [Realtime event/error reference](https://elevenlabs.io/docs/eleven-api/guides/how-to/speech-to-text/realtime/event-reference)
 - [Realtime API schema](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime)
 - [Workspace API keys and limits](https://elevenlabs.io/docs/overview/administration/workspaces/api-keys)
+- [Workspace usage analytics](https://elevenlabs.io/docs/overview/administration/usage-analytics)
 - [sounddevice raw streams](https://python-sounddevice.readthedocs.io/en/latest/api/raw-streams.html)
 - [Official Python SDK source](https://github.com/elevenlabs/elevenlabs-python)

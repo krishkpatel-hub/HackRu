@@ -1,10 +1,12 @@
 """Installed-package fixed-distance topology and ownership checks; background safe."""
 from pathlib import Path
 import os
+import math
 
 import bpy
 import bmesh
 import addon_utils
+from mathutils import Vector
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -35,9 +37,135 @@ def inspect(mesh):
         bm.free()
 
 
+def rejected(call):
+    try:
+        call()
+    except ValueError:
+        return
+    raise AssertionError('Invalid extrusion accepted')
+
+
+def vector_checks(ex):
+    from air_modeler import planes
+
+    # Synthetic mapped palm displacement: every compatible signed cardinal
+    # direction on every plane, with a face whose outward normal agrees.
+    for plane in ('XY', 'XZ', 'YZ'):
+        for axis in plane:
+            for sign in (-1, 1):
+                bpy.ops.air_modeler.create_primitive(shape='cube')
+                obj = bpy.context.object
+                mesh = obj.data
+                attr = mesh.attributes.new('sentinel', 'FLOAT', 'POINT')
+                for i, value in enumerate(attr.data): value.value = i + .25
+                mesh.uv_layers.new(name='Vector UV test')
+                for i, value in enumerate(mesh.uv_layers.active.data): value.uv = (i / 30, .75)
+                before, matrix, count = snapshot(mesh), obj.matrix_world.copy(), len(bpy.data.meshes)
+                normal = Vector(planes.AXES[axis]) * sign
+                index = max(range(6), key=lambda i: ex.face_info(obj, i)[0].dot(normal))
+                control = planes.mapping(normal, plane=plane, axis=axis)
+                component = 'XYZ'.index(axis)
+                vector = Vector(control.displacement(.125 * sign * control.horizontal[component],
+                                                     -.125 * sign * control.vertical[component]))
+                assert (vector - normal * .5).length < 1e-6
+                preview = ex.Preview(obj, index)
+                for amount in (1., 1.5, .6, 1.):
+                    preview.update_vector(vector * amount)
+                    preview.validate_result()
+                    assert (len(obj.data.vertices), len(obj.data.edges), len(obj.data.polygons)) == (12, 20, 10)
+                    assert obj.matrix_world == matrix
+                assert abs(inspect(obj.data) - 10) < 1e-5
+                valid = snapshot(obj.data)
+                tangent = Vector(planes.AXES[next(a for a in 'XYZ' if a != axis)]) * .5
+                for bad in (-vector, tangent, normal * 4.1, (math.nan, 0, 0)):
+                    rejected(lambda bad=bad: preview.update_vector(bad))
+                    assert snapshot(obj.data) == valid and preview.world_vector == vector
+                    assert snapshot(mesh) == before and obj.matrix_world == matrix
+                preview.update_vector((0, 0, 0))
+                rejected(preview.validate_result)
+                preview.restore(obj)
+                assert obj.data == mesh and snapshot(mesh) == before and len(bpy.data.meshes) == count
+                assert ex.commit_vector(obj, index, vector)
+                assert abs(inspect(obj.data) - 10) < 1e-5 and obj.matrix_world == matrix
+                assert len(bpy.data.meshes) == count
+                final_mesh = obj.data
+                bpy.data.objects.remove(obj, do_unlink=True)
+                bpy.data.meshes.remove(final_mesh)
+                print('PASS signed mapped plane', plane, 'axis', axis, sign, 'manifold/restore/attributes/bounds')
+
+    # Every signed world direction remains world-space under rotated,
+    # positive nonuniform scaling. Pick the supporting face with greatest
+    # positive world-normal dot, so these are valid oblique outward prisms.
+    for axis in 'XYZ':
+        for sign in (-1, 1):
+            bpy.ops.air_modeler.create_primitive(shape='cube')
+            obj = bpy.context.object
+            obj.rotation_euler = (.4, -.35, .8)
+            obj.scale = (1.2, .7, 1.6)
+            bpy.context.view_layer.update()
+            mesh, matrix = obj.data, obj.matrix_world.copy()
+            before, count = snapshot(mesh), len(bpy.data.meshes)
+            inverse = matrix.to_3x3().inverted()
+            vector = Vector(planes.AXES[axis]) * (.5 * sign)
+            index = max(range(6), key=lambda i: (inverse.transposed() @ ex.face_info(obj, i)[0]).normalized().dot(vector))
+            preview = ex.Preview(obj, index)
+            bases = [v.copy() for v in preview.base]
+            preview.update_vector(vector)
+            preview.validate_result()
+            for base, vertex in zip(bases, preview.cap_vertices):
+                assert ((matrix @ vertex.co) - (matrix @ base) - vector).length < 1e-6
+            inspect(obj.data)
+            assert obj.matrix_world == matrix
+            preview.restore(obj)
+            assert obj.data == mesh and snapshot(mesh) == before and len(bpy.data.meshes) == count
+            assert ex.commit_vector(obj, index, vector)
+            inspect(obj.data)
+            assert obj.matrix_world == matrix and len(bpy.data.meshes) == count
+            final_mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.meshes.remove(final_mesh)
+            print('PASS rotated nonuniform object signed world axis', axis, sign)
+
+    bpy.ops.air_modeler.create_primitive(shape='cube')
+    obj = bpy.context.object
+    mesh, before, count = obj.data, snapshot(obj.data), len(bpy.data.meshes)
+    normal = ex.face_info(obj, 0)[0]
+    assert not ex.commit_vector(obj, 0, (0, 0, 0))
+    for invalid in (-normal * .5, (math.nan, 0, 0), (10, 0, 0)):
+        rejected(lambda invalid=invalid: ex.commit_vector(obj, 0, invalid))
+        assert obj.data == mesh and snapshot(mesh) == before and len(bpy.data.meshes) == count
+    obj.scale.x = 0
+    bpy.context.view_layer.update()
+    rejected(lambda: ex.commit_vector(obj, 0, normal * .5))
+    assert obj.data == mesh and snapshot(mesh) == before and len(bpy.data.meshes) == count
+    obj.scale.x = 1
+    bpy.context.view_layer.update()
+    original_update = ex.Preview.update_vector
+    captured = []
+    def fail_vector_update(preview, vector):
+        captured.append(preview)
+        if Vector(vector).length:
+            raise RuntimeError('Injected vector preview update failure')
+        original_update(preview, vector)
+    ex.Preview.update_vector = fail_vector_update
+    try:
+        try:
+            ex.commit_vector(obj, 0, normal * .5)
+            raise AssertionError('Injected vector failure did not occur')
+        except RuntimeError:
+            pass
+    finally:
+        ex.Preview.update_vector = original_update
+    assert obj.data == mesh and snapshot(mesh) == before and len(bpy.data.meshes) == count
+    assert all(p.bm is None and p.mesh is None for p in captured)
+    bpy.data.objects.remove(obj, do_unlink=True)
+    bpy.data.meshes.remove(mesh)
+    print('PASS zero/inward/nonfinite/oversize/singular/injected vector commit failure cleanup')
+
+
 def main():
     assert os.environ.get('BLENDER_USER_RESOURCES')
-    bpy.ops.preferences.addon_install(filepath=str(ROOT / 'dist/air_modeler.zip'))
+    bpy.ops.preferences.addon_install(filepath=os.environ.get('AIR_MODELER_TEST_ZIP', str(ROOT / 'dist/air_modeler.zip')))
     module = addon_utils.enable('air_modeler', default_set=False)
     ex = module.bridge.extrusion
     for face_index in range(6):
@@ -57,6 +185,9 @@ def main():
         center = sum(face_vertices, face_vertices[0]*0) / len(face_vertices)
         preview = ex.Preview(obj, face_index)
         assert snapshot(mesh) == original
+        preview.update(ex.CONFIG.negligible_distance / 2)
+        assert 0 < preview.outward_distance < ex.CONFIG.negligible_distance
+        rejected(preview.validate_result)
         for amount in (.2, .5, .3, .5):
             preview.update(amount)
             assert (len(obj.data.vertices), len(obj.data.edges), len(obj.data.polygons)) == (12, 20, 10)
@@ -155,6 +286,7 @@ def main():
     bpy.data.objects.remove(obj, do_unlink=True)
     preview.restore(None)
     assert len(bpy.data.meshes) == count and preview.bm is None
+    vector_checks(ex)
     addon_utils.disable('air_modeler', default_set=False)
     print('PASS deleted-target ownership cleanup and fixed-distance geometry checks')
 

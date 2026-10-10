@@ -4,6 +4,7 @@ import math
 
 import bmesh
 import bpy
+from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 
@@ -115,8 +116,12 @@ class Preview:
         self.world_matrix = obj.matrix_world.copy()
         linear = self.world_matrix.to_3x3()
         self.world_normal = (linear.inverted().transposed() @ normal).normalized()
-        self.local_step = linear.inverted() @ self.world_normal
+        self.inverse_linear = linear.inverted()
+        self.local_step = self.inverse_linear @ self.world_normal
         self.amount = 0.0
+        self.world_vector = Vector((0, 0, 0))
+        self.local_vector = Vector((0, 0, 0))
+        self.outward_distance = 0.0
         try:
             self.mesh = self.original.copy()
             self.mesh.name = 'Air Extrusion Preview'
@@ -147,15 +152,37 @@ class Preview:
     def update(self, amount):
         if not math.isfinite(amount) or amount < 0 or amount > self.config.maximum_distance:
             raise ValueError('Extrusion distance is outside configured bounds')
-        self.amount = amount
+        # Legacy scalar previews may pass through a negligible positive value.
+        # validate_result/commit still prevent a negligible modeling edit.
+        self._apply_vector(self.world_normal * amount)
+
+    def update_vector(self, world_vector):
+        """Translate the existing cap from its baseline; never grow topology.
+
+        A negative world component is valid when it points outside this face.
+        Tangent/inward displacements are rejected before changing any vertices.
+        A zero vector restores the coincident preview cap and cannot be adopted.
+        """
+        vector = checked_vector(world_vector, self.config)
+        outward = vector.dot(self.world_normal)
+        if vector.length > 0 and outward <= self.config.negligible_distance:
+            raise ValueError('Extrusion must point outward from the selected face; tangent/inward motion is unsupported')
+        self._apply_vector(vector)
+
+    def _apply_vector(self, vector):
+        local = self.inverse_linear @ vector
         for vert, base in zip(self.cap_vertices, self.base):
-            vert.co = base + self.local_step * amount
+            vert.co = base + local
+        self.world_vector = vector
+        self.local_vector = local
+        self.amount = vector.length
+        self.outward_distance = vector.dot(self.world_normal)
         self.bm.normal_update()
         self.bm.to_mesh(self.mesh)
         self.mesh.update()
 
     def validate_result(self):
-        if self.amount <= self.config.negligible_distance:
+        if self.outward_distance <= self.config.negligible_distance:
             raise ValueError('Extrusion is negligible')
         if not all(e.is_manifold and e.is_contiguous for e in self.bm.edges):
             raise ValueError('Extrusion would not be consistently wound and manifold')
@@ -163,7 +190,7 @@ class Preview:
             raise ValueError('Extrusion is too small for this mesh precision')
         if self.cap.normal.dot(self.local_normal) < .999:
             raise ValueError('Extrusion cap orientation is inconsistent')
-        expected = self.original_volume + self.original_area * self.local_step.dot(self.local_normal) * self.amount
+        expected = self.original_volume + self.original_area * self.local_vector.dot(self.local_normal)
         if not math.isclose(self.bm.calc_volume(signed=True), expected, rel_tol=1e-5, abs_tol=1e-6):
             raise ValueError('Extrusion volume does not match the outward prism')
 
@@ -213,6 +240,38 @@ def commit(obj, face_index, amount, config=CONFIG):
     preview = Preview(obj, face_index, config)
     try:
         preview.update(amount)
+        preview.validate_result()
+        preview.adopt(obj)
+    except Exception:
+        preview.restore(obj)
+        raise
+    return True
+
+
+def checked_vector(value, config=CONFIG):
+    """Validate before allocating a preview or touching its current cap."""
+    try:
+        values = tuple(value)
+    except TypeError as exc:
+        raise ValueError('Extrusion requires a finite three-component world vector') from exc
+    if len(values) != 3 or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                               or not math.isfinite(v) for v in values):
+        raise ValueError('Extrusion requires a finite three-component world vector')
+    vector = Vector(values)
+    # mathutils stores float32 values; tolerate its rounding at the exact bound.
+    if vector.length > config.maximum_distance + 1e-6:
+        raise ValueError('Extrusion vector is outside configured bounds')
+    return vector
+
+
+def commit_vector(obj, face_index, world_vector, config=CONFIG):
+    """Transactional geometry commit for mapped signed world displacement."""
+    vector = checked_vector(world_vector, config)
+    if vector.length == 0:
+        return False
+    preview = Preview(obj, face_index, config)
+    try:
+        preview.update_vector(vector)
         preview.validate_result()
         preview.adopt(obj)
     except Exception:

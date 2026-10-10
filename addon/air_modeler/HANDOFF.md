@@ -1,3 +1,5 @@
+> Current 0.7.0 controls, launch and verification: [clutch handoff](../../docs/clutch_handoff.md). Historical milestones follow.
+
 > Current 0.6.0 integration: [two-hand selection and precision handoff](../../docs/enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
 
 # Current milestone: single-face EXTRUDE (0.5.0)

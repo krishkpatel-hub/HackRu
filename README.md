@@ -1,20 +1,18 @@
 # Air Modeler — HackRU
 
-## Implemented MVP and verification
+## Current interaction: 0.7.0
 
-Air Modeler 0.6.0 implements sidebar/voice/typed creation of cubes, UV spheres, cylinders and triangular prisms; pinch MOVE in the viewport plane; world-axis ROTATE; uniform SCALE; outward single-face EXTRUDE; cancel and Undo. Single-hand gestures return to MOVE; optional two-hand selector mode can rearm the next idle operation. A separate Python companion owns camera/audio and a local TCP bridge; Blender owns all scene edits.
+Air Modeler combines hand observations, typed commands and optional push-to-talk voice with one Blender controller. **Either anatomical hand can MOVE alone.** For ROTATE, SCALE and EXTRUDE, Left pinch selects and holds; Right supplies the manipulation. All scene edits run on Blender's main thread and use native Undo.
 
-Use Object Mode and visible, editable, unparented meshes without constraints, animation or enabled modifiers. EXTRUDE additionally requires a local single-user mesh, no shape keys/custom normals, a positive nonsingular transform, closed consistently oriented manifold geometry, and a flat convex triangular or quad supporting face. Cube faces, prism caps/sides and eligible newly extruded caps are supported. Reflected transforms, recessed/nonplanar faces, inward/multiple-face extrusion and arbitrary geometry reconstruction are outside this demo. See [geometry restrictions](docs/extrusion_handoff.md).
+With `--two-hands`, a pinch first selects without deforming. Move the selecting hand to start MOVE; with a left clutch, twist a right **thumb/index/middle** grip to rotate, spread/close those three fingers to scale, or move a right open palm to extrude the locked face in a displayed world plane. Only the selecting hand's observed release commits. Stationary selection creates no edit. Ambiguous intent waits; cancel/loss restores the original state. This replaces the 0.6 selector-pose menu.
 
-Automated Python checks and synthetic Blender geometry/Undo checks pass. H's live tracker and V's standalone live speech reports do **not** establish a combined live 0.6.0 demo pass. See [demo evidence and rehearsal](docs/demo_handoff.md) for exact revisions, remaining device checks and presentation checklist. Sponsor attribution remains unconfirmed; V verified realtime API access.
+Defaults: owner motion 0.025 image fraction, right palm motion 0.035, twist 8°, aperture change 12%, 150 ms persistence and 1.35× dominance. Sidebar thresholds are configurable and require physical calibration. Rotation uses measured 2D palm twist around world Z (X/Y/Z overrides); uniform scale is bounded 0.1–10. Extrusion maps signed palm motion into XY/XZ/YZ at 4 world units per normalized displacement, bounded to length 4, with compatible optional axis constraints. No camera depth is inferred. The sidebar identifies the locked plane, signed directions and displacement.
 
-## Two-hand selection and precision (0.6.0)
+Use Object Mode and editable unparented meshes without enabled modifiers, constraints or animation. Extrusion additionally needs a local single-user closed manifold mesh, positive nonsingular transform and a flat convex triangular/quad supporting face. Cube/prism faces and eligible new caps are supported. Tangent/inward, reflected, recessed/nonplanar or arbitrary multi-face extrusion is rejected. Cancellation restores original mesh data; separate completed edits have separate Undo steps.
 
-The cursor-fixed single-hand fallback is retained. Add `--two-hands --manipulator-hand Right` to the PTT launch: right manipulates, left selects; `Left` swaps roles. One camera/one manipulation cursor, `preview=False`. Fist→MOVE, index+middle→world-Z ROTATE, index+middle+ring→SCALE, open palm→EXTRUDE. Thumb is ignored for selection. Stable pose: 300 ms; ambiguous/absent timeout: 600 ms. Active operations lock their tool and target; uncertain manipulating-hand identity freezes/cancels rather than transferring a gesture. Physical mirrored-role confirmation is still required.
+Numeric whole phrases remain: `rotate x 45 degrees`, `move x -2 units`, `scale by 1.5`, `extrude 0.5 units` / `extend .5 units`. Object values apply once to the selected eligible object while IDLE. Numeric extrusion arms fixed outward-normal distance for the next explicit face operation; Left selection and deliberate Right open-palm intent are still required in clutch mode. Plane phrases include `extrude plane xz axis z`, `extrude plane xy`, `extrude plane auto` and `extend axis x`. Bare modes override automatic intent once, keeping required gestures and locks. Sidebar values only apply when clicked; Cancel Values discards staging.
 
-Numeric whole phrases: `rotate x 45 degrees` (±360°), `move x -2 units` (±100 world units), `scale by 1.5` (0.1–10), `extrude 0.5 units` / `extend 0.5 units` (>0.00001–4 units). Object edits apply once to the selected eligible object while idle. Numeric extrusion arms the next face pinch; movement does not add distance. Bare mode commands override automatic selection for one operation. Sidebar Precision stages values without mutation; Apply uses shared Undo helpers; Cancel Values discards staged values. Conflicting input during a preview is rejected.
-
-See [0.6.0 handoff](docs/enhancement_handoff.md) for exact launch commands, identity/pose criteria, numeric restrictions, installation/runtime verification and [physical acceptance](docs/physical_acceptance.md). These enhancements are not a claimed combined live demo pass. The user's updated ownership instruction authorizes implementation across project modules; Plus teammates assist testing. The original ownership table below is retained as historical agreement.
+See [complete 0.7.0 controls, mapping, setup and evidence](docs/clutch_handoff.md), [wire protocol](docs/protocol.md), and [ordered physical acceptance log](docs/physical_acceptance.md). The existing recorded cursor fixture, standalone voice reports, startup observations and synthetic Blender checks are separate evidence; **a combined live 0.7.0 demo is still pending**. Sponsor attribution remains unconfirmed. The latest request authorizes coordinated changes across modules; the ownership agreement below is retained as historical context.
 
 ## Reproducible companion setup
 
@@ -64,19 +62,19 @@ The value is hidden and absent from shell history. Launch Blender separately fro
 .venv/bin/python tools/package_addon.py
 ```
 
-ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.6.0**. Companion/PTT changes do not change that version. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.6.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
+ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.7.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.7.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
 
-Choose **one** command after selecting the local device variables above:
+This laptop's confirmed camera is **0**, microphone **0 (MacBook Air Microphone)**. Exact launch commands with those indices are in the [current handoff](docs/clutch_handoff.md). The variables below are for rediscovery if devices change. Choose **one** command:
 
 ```sh
 # Hands plus typed commands (no API key needed)
-.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands
 
 # Hands plus hands-free live voice, with typed fallback
-.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --mic --device "$MIC_INDEX"
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --mic --device "$MIC_INDEX"
 
 # Hands plus push-to-talk live voice, with typed fallback
-.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --mic --device "$MIC_INDEX" --push-to-talk
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --mic --device "$MIC_INDEX" --push-to-talk
 ```
 
 In a 3D viewport, open the N sidebar → Air Modeler → Connect. Wait for companion `READY` before commands. `Hands config:` confirms camera/model and preview False. For voice, wait for `Scribe session ready. Opening microphone; typed commands remain active.` as well. `status` shows Blender state/errors; `help` lists commands. `QUEUED` means queued, not successful scene execution: inspect Blender/status. `quit`, `/quit`, EOF or Ctrl+C stops workers and bridge.
@@ -94,6 +92,8 @@ Common remedies:
 - `ELEVENLABS_API_KEY is missing`, auth/quota/terms errors: enter the key privately or fix account access, then restart. Typed commands still work.
 - Microphone unavailable: check permission and input device; integrated voice uses 16 kHz. The standalone voice diagnostic accepts `--sample-rate 48000`, but that flag is not exposed by this runner. If only 48 kHz works, use typed fallback and report the device incompatibility to V/P.
 - `NEEDS_RELEASE`: open the hand visibly before pinching again. Face rejection: use an eligible cube/prism face and inspect the outline/error.
+
+Legacy fallback: omit `--two-hands` from the selected launch command. Keep only one hand in view; pinch MOVE directly, use bare `rotate x/y/z` then horizontal movement, `scale` then vertical movement, or `extrude` then upward outward-normal distance. The older selector-pose menu is not the current two-hand interaction. `--manipulator-hand Right` is accepted for existing launches; `Left` is rejected with `--two-hands` because the clutch contract is anatomical.
 
 ## Architecture agreement (preserved)
 

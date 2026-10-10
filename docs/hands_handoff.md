@@ -1,4 +1,35 @@
-> Current 0.6.0 integration: [two-hand selection and precision handoff](enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
+# Current hands integration: 0.7.0 selection clutch
+
+Use `--two-hands` for the anatomical interaction model in the [clutch handoff](clutch_handoff.md). Either anatomical hand can select and MOVE by thumb/index pinch. Left selection plus a right thumb/index/middle grip supplies rotation/scale observations; left selection plus a right open palm supplies extrusion observations. Blender chooses and locks operations. The former selector-pose menu is not emitted by this mode. `--manipulator-hand Right` is accepted only for CLI compatibility; `--two-hands --manipulator-hand Left` is rejected because clutch identities are fixed.
+
+The tracker opens **one camera**, asks MediaPipe for up to two hands, and emits one coherent `hands_frame` per processed capture through the supplied `emit` callback. Each frame contains a monotonically increasing `frame_id`, elapsed monotonic `t`, and explicit `Left`/`Right` observations. These carry validity/confidence, corrected cursor, filtered palm position, stable observed-open flag, independent pinch UUID/boundary, grip angle/aperture and open-palm flags. See the [exact protocol](protocol.md). This mode emits neither legacy gesture events nor competing manipulation cursors. The integrated worker uses `preview=False`; the standalone `--no-preview` flag does the same.
+
+Each hand retains its own cursor-fixed `HandEngine`: pre-close aim hold (100 ms lookback), palm-relative active motion, and frozen coordinates when opening begins. Pinch thresholds remain 0.35/0.60 with 80 ms persistence. A brief loss resumes at the last accepted cursor, reanchoring the palm so unobserved motion causes no jump. Sustained loss cancels once after 0.5 seconds and requires observed open-hand rearming. Loss never emits END. Blender likewise rebases recovered right-manipulation references and owns operation cancellation.
+
+Identity uses MediaPipe labels and confidence, never result-array order. Defaults are confidence ≥0.8, first acquisition 300 ms, recovery 80 ms, maximum center step 0.18 normalized image units, and minimum two-hand separation 0.12. Duplicate/low-confidence identities invalidate only that hand. Overlap and paths inconsistent with both previous identities invalidate both. An active pinch anchor cannot relocate. The right anchor is additionally protected throughout a left pinch, even when a wide right grip has no active ordinary pinch UUID. This prevents right-hand reacquisition from silently transferring a held operation. Unrelated right-hand loss alone does not invalidate a left-owned MOVE. These conservative thresholds require physical calibration.
+
+Grip detection requires the **thumb, index and middle**, with ring and pinky folded. Index/middle PIP and DIP angles must be at least 135°, with tip-to-wrist reach at least 1.05 times PIP-to-wrist reach. Ring/pinky PIP angle must be at most 115° with tip reach at most 1.1 times PIP reach. Thumb IP angle must be at least 125°, its tip-to-CMC reach at least 1.05 times IP-to-CMC reach, and tip-to-wrist reach at least 0.65 palm sizes. An open palm requires the thumb plus all four extended fingers. Ambiguous/degenerate poses produce neither grip nor open palm. These are measured 2D pose rules, not verified universal hand-shape recognition.
+
+The grip angle is `atan2(-(middle_MCP.y - wrist.y), aspect * (middle_MCP.x - wrist.x))` in radians. It measures image-plane palm orientation, not full 3D rotation. Aperture is the mean of the three distances between thumb/index/middle tips, divided by palm size; all distances correct for camera aspect ratio. Palm size is the larger of wrist-to-middle-MCP and index-MCP-to-pinky-MCP distance. A grip remains valid while its fingers spread or close. Its ordinary right pinch can end during spreading without ending the **left** selection clutch. Neither feature uses landmark `z` as depth.
+
+The pipeline flips the camera image horizontally **once before inference**. MediaPipe's [official Hands implementation](https://github.com/google-ai-edge/mediapipe/blob/master/mediapipe/python/solutions/hands.py) documents its mirrored/selfie handedness convention; the [Tasks result API](https://ai.google.dev/edge/api/mediapipe/python/mp/tasks/vision/HandLandmarkerResult) exposes handedness categories. We preserve those categories. The synthetic pipeline test confirms exactly one flip; **actual anatomical left/right on the laptop remains NOT RUN** until the [physical acceptance checklist](physical_acceptance.md) records it.
+
+Focused automated result: **46 passed** with the existing `.venv` using:
+
+```sh
+/Users/krishpatel/HackRu/.venv/bin/python -m pytest -q tests/test_hand_observations.py tests/test_hands_*.py
+```
+
+The new landmark/identity/pose sequences and fake-camera cleanup tests are explicitly synthetic. They cover either-hand cursor behavior, simultaneous IDs, missing/uncertain/crossing hands, safe reacquisition, sustained loss/rearming, grip twist versus aperture, right-pinch END during a valid grip, protected right identity under a left clutch, one mirror, and cleanup. The existing `real_still_pinch.json` cursor regression still passes and remains genuine recorded evidence from the earlier one-hand work. None of these checks proves a complete combined live 0.7.0 demo.
+
+Omit `--two-hands` for the practical legacy fallback: one detected hand, using the first MediaPipe result, legacy gesture events and explicit voice/typed modes. This fallback has no anatomical identity guarantee or two-hand clutch arbitration. Example standalone diagnostic commands (do not run concurrently with the companion's camera worker):
+
+```sh
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.hands --camera 0 --two-hands --no-preview
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.hands --camera 0 --no-preview
+```
+
+The dated handoff below is retained as historical evidence. Its one-hand limitations and older installation instructions describe that historical version; current setup and controls are in the [README](../README.md) and [clutch handoff](clutch_handoff.md).
 
 # Hands handoff (H, `feature/hands`)
 

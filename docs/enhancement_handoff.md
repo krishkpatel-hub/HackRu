@@ -1,3 +1,5 @@
+> Current 0.7.0 controls and verification: [clutch handoff](clutch_handoff.md). The material below is historical and does not establish a combined 0.7.0 live pass.
+
 # Two-hand selection and precision handoff — 0.6.0
 
 Cursor-fixed baseline was committed/pushed before enhancements: `9fc3907` (integration merge `2e18ae8cfd93bfd8a7fe321caed0f9473ccb09d2`), incorporating reviewed H implementation `b6d3d56` and handoff `d3ced04`. Baseline: 71 Python tests + 78 subtests, package 0.5.0. The baseline ZIP is preserved locally at `/tmp/air-modeler-cursor-baseline-0.5.0.zip`. Final enhancement commit is the commit containing this file (`git log -1 --format=%H -- docs/enhancement_handoff.md`). Package **0.6.0**, minimum Blender **5.2**, tested runtime **5.2.2 LTS**. No dependencies changed.

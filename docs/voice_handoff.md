@@ -1,3 +1,5 @@
+> Current 0.7.0 controls and verification: [clutch handoff](clutch_handoff.md). The material below is historical and does not establish a combined 0.7.0 live pass.
+
 > Current 0.6.0 integration: [two-hand selection and precision handoff](enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
 
 # Voice handoff — HackRU

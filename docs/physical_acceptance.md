@@ -1,28 +1,33 @@
-# Air Modeler 0.9.0 physical acceptance
+# Air Modeler 0.10.0 physical acceptance
 
-**NOT RUN on 0.9.0.** No synthetic/native test marks a physical pass. Previous
-live findings: MOVE works; SCALE/fist recognition unreliable; apparent single-axis
-rotation (reported X); palm turning sometimes triggers SCALE; extrusion weak.
-Reported at last release 0.8.0; exact captured failure sequences unavailable.
-Preserve [the 0.8 record](physical_acceptance_0.8.md) and all scene files.
+**All checks NOT RUN on 0.10.0.** User reports selection, MOVE, SCALE and ROTATE
+now work reasonably well. Preserve that report and [0.9 history](physical_acceptance_0.9.md);
+do not reinterpret synthetic passes as live acceptance. Extrusion is this milestone's focus.
 
-Setup first, one action per reply: save `rehearsal_090.blend`; install/restart with
-[the exact instructions and launch command](clutch_handoff.md#install-and-launch).
-Record delivered SHA, installed version, companion 0.9.0/profile v3, actual Blender
-version, anatomical Left/Right, camera 0/microphone 0, actual bridge and voice readiness.
-User install remains 0.8.0 until confirmed. No key belongs in chat or diagnostics.
+Setup proceeds **one small action per reply**. First save a new
+`/Users/krishpatel/HackRu/rehearsal_0_10.blend` copy. Follow
+[installation/restart/launch](clutch_handoff.md#install-and-launch), then confirm
+installed version **0.10.0**, exact `git rev-parse HEAD`, Blender version,
+companion 0.10.0/profile v3, camera 0/mic 0, bridge READY and Scribe-ready separately.
+At development inspection the installed add-on was 0.9.0 on disk; running loaded
+module equality was not verified. The old companion was stopped cleanly for tests.
+No private key belongs in this record, chat, command arguments or recordings.
 
-| Group | Status | Starting pose and action | Expected result and required observation |
+| Step | Status | One physical check | Observe and record |
 | --- | --- | --- | --- |
-| 1 Selection/MOVE | NOT RUN | Right open, stationary; Left points at cube, pinches and moves while held. Then move Right open palm, hold, release Left. Undo; repeat two edits and Undo separately. | READY without deformation/Undo; Left inert, Right MOVE same sensitivity; no activation/release jump; each edit one Undo. Report phase, smoothness and exact unexpected motion. |
-| 2 SCALE | NOT RUN | Select with Left; Right fingers together, extended. Close whole hand to fist, hold 1 s, reopen and hold. Release Left, Undo. Repeat with typed `scale` before selection if recognition fails. | Shrink/enlarge smoothly, steady holds, fist valid, no EXTRUDE, origin/rotation/proportions intact. Report openness range and which fingers/pose fail; capture 20 s if needed. |
-| 3 FREE ROTATE | NOT RUN | Select with Left; Right open fingers together. Separately twist, tilt and turn sideways through palm-to-knuckles, then combine motions; hold/release/Undo. Compare `rotate`, then `rotate x/y/z`. | Three independent rotations with no scale change or frame flips. Constrained commands affect only named world axis. Report each physical motion separately with phase/quaternion validity; never mark all three from one motion. |
-| 4 EXTRUDE | NOT RUN | Left selects object anywhere. Right fresh isolated pinch; drag a little, hold direction for highlight, then move a comfortable short distance. Try opposite signs, explicit XY/XZ/YZ, hidden face, diagonal ambiguity and repeated cap. | No topology pending/ambiguous; intended outward face highlights/locks; short travel visibly extends; reverse returns toward zero without switching. Report mapping, signed normal, comfortable measured travel/distance and any jump. |
-| 5 Completion/recovery/Undo | NOT RUN | Repeat extrusion with Right release first and Left first. Cancel/Escape; briefly hide each hand, then hide >0.5 s; cross/occlude, release during loss, disconnect/reconnect. Undo two completed edits separately; Undo during preview. | Commit only once; observed releases required; brief loss freezes/rebases, sustained loss/cancel exactly restores; no stale release or ownership transfer; correct separate Undo. Report each path separately. |
-| 6 Typed/PTT/full demo/shutdown | NOT RUN | IDLE: typed and PTT create cube, numeric move/rotate/scale, fixed extrusion with plane override. Then voice cube → Left clutch/Right MOVE → SCALE → FREE ROTATE → EXTRUDE → individual Undo. Quit/relaunch/quit. | Committed-only voice once each, muted speech inert, typed fallback works, fixed distance exact after automatic face choice. Camera light off/terminal return/reopen; no worker warning. Report service readiness and complete sequence result. |
+| 1 | NOT RUN | With Right open and stationary, Left pinch selects a cube. Hold, then move Left slightly while held. | SELECTED_READY, no deformation, Left movement inert, no Undo entry. |
+| 2 | NOT RUN | Still holding Left, Right isolated thumb/index pinch, short deliberate drag toward one visible side, then pause. | Direction pending → labeled candidate → locked orange face/OUT arrow. No activation jump. Record face, signed axes/mapping and any rejection. |
+| 3 | NOT RUN | Move Right a comfortable short distance outward, hold, reverse through baseline, then inward toward the limit. | Continuous signed distance; same face throughout; clean shortening without internal cap/overlap; zero returns original topology; limit clamps with readable reason. Record travel comfort and direction. |
+| 4 | NOT RUN | Release Right, then Left; Undo. Repeat with Left release first. | One edit per completion, no release jump or second commit; one Undo restores each exact baseline. |
+| 5 | NOT RUN | Reselect and repeat on another visible side, using a documented explicit plane/axis if needed. | Hidden opposite face never selected; every visible cube side reachable through suitable mapping, no excessive travel or unexplained sign. |
+| 6 | NOT RUN | Rotate the object, finish, reselect, and extrude a newly exposed face. Also repeat on a resulting cap. | Fresh visible faces/normals; stable mapping; repeated cap bound shown; separate Undo for every completed edit. |
+| 7 | NOT RUN | Separately test a diagonal ambiguous drag; typed Cancel; Escape; brief and >0.5 s loss of each hand; navigation; disconnect/reconnect. | Ambiguity changes no topology; temporary loss freezes/reanchors; sustained loss/cancel/navigation/disconnect restore baseline, require fresh observed release. No stale frame or identity transfer. |
+| 8 | NOT RUN | Retest selection/MOVE, SCALE through fist/reopen, and independent three-axis ROTATE; release/Undo each. | Existing controls, gain, smoothness and transaction behavior unchanged. Record each tool separately. |
+| 9 combined services | NOT RUN | PTT `/talk` → “create cube” → `/end`; complete hands sequence, typed fallback, fixed numeric extrusion, individual Undo; clean shutdown. | Scribe-ready and bridge-ready before commands; each committed command once; typed input available; shutdown restores active preview, releases camera, returns prompt without worker warning. |
 
-For every action record PASS/FAIL/NOT RUN, revision/version, starting pose,
-actual result, reason/diagnostics and recovery. Partial groups remain NOT RUN unless
-a failure occurs. Fix demonstrated failures, rebuild/reinstall and rerun affected
-checks before marking ready. Live gain tuning and three-axis visibility limits are
-still open acceptance work, not blocked by the draft PR permission issue.
+For each action record exact revision/installed version, starting pose, PASS/FAIL/
+NOT RUN, actual result and recovery. An incomplete group stays NOT RUN unless a
+failure occurs. If recognition fails, inspect 2 Hz diagnostics and optionally use
+the existing private bounded landmark recording/replay. Do not globally relax
+working arbitration thresholds. Fix demonstrated owned-code defects only, rebuild,
+reinstall/restart and rerun affected checks. PR permissions do not block rehearsal.

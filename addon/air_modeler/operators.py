@@ -63,20 +63,21 @@ class AIRMODELER_OT_commit_extrusion(bpy.types.Operator):
     distance: bpy.props.FloatProperty()
     vector: bpy.props.FloatVectorProperty(size=3)
     use_vector: bpy.props.BoolProperty(default=False)
+    use_signed: bpy.props.BoolProperty(default=False)
     maximum_distance: bpy.props.FloatProperty()
     negligible_distance: bpy.props.FloatProperty()
 
     def execute(self, context):
         from dataclasses import replace
-        from . import extrusion
+        from . import extrusion, signed_extrusion
         obj = context.view_layer.objects.get(self.target_name)
         if obj is None or context.mode != 'OBJECT':
             return {'CANCELLED'}
         try:
             config = replace(extrusion.CONFIG, maximum_distance=self.maximum_distance,
                              negligible_distance=self.negligible_distance)
-            commit = extrusion.commit_vector if self.use_vector else extrusion.commit
-            value = tuple(self.vector) if self.use_vector else self.distance
+            commit = signed_extrusion.commit if self.use_signed else extrusion.commit_vector if self.use_vector else extrusion.commit
+            value = tuple(self.vector) if self.use_vector and not self.use_signed else self.distance
             if not commit(obj, self.face_index, value, config):
                 return {'CANCELLED'}
         except (ValueError, RuntimeError) as exc:

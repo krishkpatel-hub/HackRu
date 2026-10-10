@@ -40,7 +40,7 @@ def main():
         with ZipFile(archive_path) as archive:
             assert set(archive.namelist()) == {
                 f"air_modeler/{name}" for name in
-                ("__init__.py", "primitives.py", "operators.py", "panel.py", "bridge.py", "viewport.py", "transforms.py", "extrusion.py", "selection.py", "intent.py", "planes.py", "spatial.py", "_protocol.py")
+                ("__init__.py", "primitives.py", "operators.py", "panel.py", "bridge.py", "viewport.py", "transforms.py", "extrusion.py", "selection.py", "intent.py", "planes.py", "visibility.py", "signed_extrusion.py", "spatial.py", "_protocol.py")
             }
         # Use Blender's actual legacy installer, isolated from the user's add-ons.
         entry = bpy.context.preferences.filepaths.script_directories.new()

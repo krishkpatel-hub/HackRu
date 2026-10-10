@@ -194,13 +194,8 @@ class Check(helpers.Check):
             gesture_id=gid or self.right_gid,event=event,openness=.8,fingers=[.2,1.,1.,1.],open_palm=False,
             extrude_pose=True,pinch_pending=event!='END'))
 
-    def arm_extrusion(self, phrase, index):
+    def arm_extrusion(self, phrase, index, direction=1):
         center,normal=self.aim(index)
-        # Aim Left at the OPPOSITE side; intended drag must still select the
-        # hidden requested face rather than either hand's raycast.
-        opposite=min(range(len(self.obj().data.polygons)),key=lambda i:
-            (self.obj().matrix_world.to_3x3().inverted().transposed()@self.obj().data.polygons[i].normal).normalized().dot(normal))
-        self.aim(opposite)
         yield .12
         yield from self.idle()
         before=geometry.snapshot(self.obj().data)
@@ -216,7 +211,7 @@ class Check(helpers.Check):
         self.right_pinch(event='START')
         yield from self.lock('EXTRUDE')
         assert self.runtime().drag.geometry is None
-        self.mapped_vector(normal*.35)
+        self.mapped_vector(normal*.35*direction)
         yield from self.until(lambda:self.runtime().drag.face_index is not None,'automatic face lock')
         assert self.runtime().drag.face_index==index and self.runtime().face_outline
         assert geometry.snapshot(self.obj().data)==before,'direction lock mutated topology'
@@ -232,7 +227,7 @@ class Check(helpers.Check):
         return uv
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,9,0)
+        assert self.module.bl_info['version']==(0,10,0)
         self.window.scene.cursor.location=(0,0,0)
         self.line('create cube')
         yield from self.until(lambda:len(self.objects())==1,'spawn cube')
@@ -500,11 +495,61 @@ class Check(helpers.Check):
         yield from self.arm_extrusion('extrude plane xz axis z',index)
         self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.geometry and self.runtime().drag.geometry.outward_distance>.39,'valid cap')
         valid_mesh=geometry.snapshot(self.obj().data)
-        self.mapped_vector((0,0,-.4));yield from self.until(lambda:self.runtime().drag.geometry.outward_distance==0,'reverse to zero')
+        self.mapped_vector((0,0,0));yield from self.until(lambda:self.runtime().drag.geometry.outward_distance==0,'reverse to zero')
         assert self.runtime().drag.valid_preview
         yield from self.release()
         assert geometry.snapshot(self.obj().data)==mesh_before
         print('PASS fixed distance after explicit Right pinch, repeated cap/consecutive Undo, reverse-to-zero release exact restoration',flush=True)
+        for first in ('Right','Left'):
+            yield from self.arm_extrusion('extrude plane xz axis z',index,direction=-1 if first=='Left' else 1)
+            self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.amount>.39,'outward before reversal')
+            locked=self.runtime().drag.face_index
+            self.mapped_vector((0,0,-.4));yield from self.until(lambda:self.runtime().drag.amount<-.39,'inward after reversal')
+            assert self.runtime().drag.face_index==locked
+            assert (len(self.obj().data.vertices),len(self.obj().data.polygons))==(8,6)
+            final=geometry.snapshot(self.obj().data)
+            if first=='Right':self.mapped_vector((0,0,-.4),event='END')
+            else:self.owner_at(self.start_uv,'END')
+            yield from self.until(lambda:self.runtime().drag is None,'inward '+first+' completion')
+            assert geometry.snapshot(self.obj().data)==final,('release changed preview geometry',first,self.module.bridge.ui_state(),[(i,a,b) for i,(a,b) in enumerate(zip(final,geometry.snapshot(self.obj().data))) if a!=b])
+            self.owner_at(self.start_uv,'END');self.right_pinch(event='END');yield from self.idle()
+            yield from self.undo_mesh(mesh_before,baseline,'inward separate native Undo')
+        print('PASS locked-face outward/zero/inward reversal, clean shortening, both release orders and exact native Undo',flush=True)
+
+
+        for reason in ('cancel','escape','loss','stale','view','mesh','attributes'):
+            yield from self.arm_extrusion('extrude plane xz axis z',index)
+            self.mapped_vector((0,0,-.3));yield from self.until(lambda:self.runtime().drag.amount<-.29,reason+' inward preview')
+            original=self.runtime().drag.source_mesh
+            if reason=='cancel':self.line('cancel')
+            elif reason=='escape':
+                operator=SimpleNamespace(runtime=self.runtime())
+                with self.override():
+                    self.module.bridge.AIRMODELER_OT_connect.modal(operator,bpy.context,SimpleNamespace(type='ESC',value='PRESS'))
+            elif reason=='loss':self.capture(right=absent())
+            elif reason=='stale':
+                self.auto_frames=False;yield .68
+                assert self.runtime().drag is None and 'stale' in self.module.bridge.ui_state()[2].lower()
+                self.owner_at(self.start_uv,'END');yield .12
+                self.auto_frames=True
+            elif reason=='view':self.area.spaces.active.region_3d.view_distance+=1;self.area.tag_redraw()
+            elif reason=='mesh':self.obj().data.vertices[0].co.x+=.1;self.obj().data.update()
+            else:self.obj().data.polygons[0].material_index+=1
+            yield from self.until(lambda:self.runtime().drag is None,reason+' restores baseline')
+            assert self.obj().data==original and geometry.snapshot(original)==mesh_before
+            yield from self.idle()
+        print('PASS inward typed/Escape cancellation, sustained loss, 0.68s stale completion, viewport/mesh/attribute invalidation restore exact baseline',flush=True)
+
+        rv=self.area.spaces.active.region_3d
+        rv.view_rotation=Vector((1,1,1)).to_track_quat('Z','Y');rv.view_location=self.obj().matrix_world.translation
+        self.area.tag_redraw();yield .2
+        self.line('extrude plane xy');yield .12
+        yield from self.start(uv=(.5,.5));self.right_pinch(event='START');yield from self.lock('EXTRUDE')
+        self.mapped_vector((.35,.35,0));yield .3
+        assert self.runtime().drag.face_index is None and self.runtime().drag.geometry is None
+        assert geometry.snapshot(self.obj().data)==mesh_before
+        self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'ambiguous cancellation');yield from self.idle()
+        print('PASS competing visible-face diagonal remains direction pending without topology',flush=True)
 
         # Active-preview Undo cancels before undoing previous completed edit.
         self.line('move x 1 units');yield .2
@@ -533,7 +578,7 @@ class Check(helpers.Check):
 
 
 check = Check()
-check.deadline = time.monotonic()+180
+check.deadline = time.monotonic()+240
 
 
 def advance():

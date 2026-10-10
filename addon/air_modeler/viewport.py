@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import bpy
 from bpy_extras import view3d_utils
+from mathutils import Vector
 
 
 def mapping(context):
@@ -104,6 +105,27 @@ def draw(client):
             shader.bind()
             shader.uniform_float('color', (1, .7, .05, 1))
             batch_for_shader(shader, 'LINE_STRIP', {'pos': [*outline, outline[0]]}).draw(shader)
+
+    drag=client.drag
+    if client.face_outline and drag and getattr(drag,'face_index',None) is not None and hasattr(drag,'locked_normal'):
+        center=sum(client.face_outline,Vector())/len(client.face_outline)
+        start=view3d_utils.location_3d_to_region_2d(context.region,context.space_data.region_3d,center)
+        end=view3d_utils.location_3d_to_region_2d(context.region,context.space_data.region_3d,center+drag.locked_normal*.6)
+        virtual=False
+        if start is not None and (end is None or (end-start).length<=3):
+            normal=drag.locked_normal.copy()
+            if drag.plane.axis!='NONE':
+                normal=Vector(tuple(v if i=='XYZ'.index(drag.plane.axis) else 0. for i,v in enumerate(normal)))
+            direction=Vector((normal.dot(Vector(drag.plane.horizontal)),normal.dot(Vector(drag.plane.vertical))))
+            if direction.length>=.25:
+                end=start+direction.normalized()*42;virtual=True
+        if start is not None and end is not None and (end-start).length>3:
+            direction=(end-start).normalized();side=Vector((-direction.y,direction.x))
+            shader.bind();shader.uniform_float('color',(0.2,1.,.5,1.))
+            batch_for_shader(shader,'LINES',{'pos':[start,end,end,end-direction*10+side*5,end,end-direction*10-side*5]}).draw(shader)
+            import blf
+            blf.position(0,end.x+5,end.y+5,0);blf.size(0,12);blf.color(0,.2,1.,.5,1.)
+            blf.draw(0,'OUT (virtual drag)' if virtual else 'OUT')
 
     import blf
     blf.position(0, x + 16, y + 16, 0)

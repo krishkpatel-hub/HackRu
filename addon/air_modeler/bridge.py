@@ -6,7 +6,7 @@ import socket
 import time
 from types import SimpleNamespace
 
-from . import viewport, transforms, extrusion, intent, planes
+from . import viewport, transforms, extrusion, intent, planes, visibility, signed_extrusion
 from .selection import Selector
 import math
 
@@ -425,7 +425,7 @@ class Client:
             self.cancel_drag(preserve_mode=True)
             raise RuntimeError('Unsupported target' if rejected else 'Pinch missed; release Left before retrying')
         obj, point = hit
-        # Selection is object-only. Direction later chooses among ALL eligible faces.
+        # Selection is object-only; visible supported faces are discovered on EXTRUDE.
         normal = view[1].view_matrix.inverted().col[2].xyz.normalized()
         for selected in context['view_layer'].objects:
             if selected.select_get():
@@ -435,7 +435,7 @@ class Client:
         cfg = self.selection_config()
         self.drag = SimpleNamespace(identifier=observation['gesture_id'], owner='Left',
             target_id=obj.session_uid, baseline=obj.matrix_world.copy(), scale_signs=tuple(obj.scale),
-            source_mesh=obj.data, view=view, mode=None, axis=self.axis if self.override else "FREE", start=uv, fixed_distance=self.fixed_distance,
+            source_mesh=obj.data, source_stamp=visibility.mesh_stamp(obj.data), view=view, mode=None, axis=self.axis if self.override else "FREE", start=uv, fixed_distance=self.fixed_distance,
             geometry=None, config=transforms.CONFIG, amount=0., point=point, normal=normal, grab=None,
             max_delta=max(100, (point-viewport.ray(view,uv)[0]).length*10),
             face_index=None, face_error=None,
@@ -474,7 +474,15 @@ class Client:
             drag.pinch_start = drag.intent.pinch_start
             if drag.right_id is None:
                 raise RuntimeError('Extrusion requires a fresh isolated Right pinch')
-            drag.face_candidates = extrusion.candidates(obj)
+            self.validate_extrusion_baseline()
+            drag.face_candidates,drag.visibility_records = visibility.visible_faces(obj,self.context(),drag.view)
+            if not drag.face_candidates:
+                raise ValueError('No supported visible face; expose a face and reselect')
+            drag.occluders = visibility.scene_stamp(self.context(),obj)
+            drag.visibility_checked = time.monotonic()
+            drag.expected_stamp = drag.source_stamp
+            space=self.context()['area'].spaces.active
+            drag.shading=(space.shading.type,space.shading.show_xray)
             view_rotation = drag.view[1].view_matrix.inverted()
             drag.plane = planes.automatic(view_rotation.col[0].xyz,view_rotation.col[1].xyz,
                 drag.plane_name,drag.plane_axis,drag.intent_config.extrusion_sensitivity)
@@ -529,24 +537,31 @@ class Client:
             final.translation = drag.baseline.translation
             transforms.apply_matrix(obj,final,drag.scale_signs)
         elif drag.mode == 'EXTRUDE':
+            self.validate_extrusion_baseline()
             from mathutils import Vector
             delta = right['u']-drag.pinch_reference[0],right['v']-drag.pinch_reference[1]
             vector = drag.plane.displacement(delta[0]*drag.aspect,delta[1])
             if drag.face_index is None:
                 # Small direction threshold is independent of extrusion gain.
                 if math.hypot(delta[0]*drag.aspect,delta[1]) < .018:
+                    drag.direction_candidate=None;self.face_outline=()
                     self.target_message = 'Pinch held: drag a little to choose extrusion direction'
                     return
-                choice=extrusion.choose_face(drag.face_candidates,vector)
+                choice,scores,reason=visibility.choose(drag.face_candidates,vector,drag.plane,drag.direction_candidate)
+                drag.face_scores=scores
                 if choice is None:
                     drag.direction_candidate=None
-                    self.target_message='Drag more clearly toward one direction'
+                    if self.frame_time-getattr(drag,'highlight_at',-1)>.15:self.face_outline=()
+                    self.target_message=reason+'; candidate only, no deformation'
                     return
-                index,normal,outline,scores=choice
-                drag.face_scores=scores
+                index,normal,center,outline=choice
+                self.target_message=f'Candidate face {index}; hold direction to lock; no deformation'
                 if drag.direction_candidate!=index:
+                    if self.frame_time-getattr(drag,'highlight_at',-1)>.15:self.face_outline=()
                     drag.direction_candidate=index;drag.direction_since=self.frame_time
                     return
+                if self.frame_time-drag.direction_since>=.06:
+                    self.face_outline=outline;drag.highlight_at=self.frame_time
                 if self.frame_time-drag.direction_since<.10:return
                 drag.face_index=index;drag.locked_normal=normal
                 drag.face_locked_at=self.frame_time
@@ -554,18 +569,27 @@ class Client:
                 drag.pinch_delta=(0.,0.)
                 self.face_outline=outline
                 self.target_message=(f'Face {index}; normal ({normal.x:+.2f},{normal.y:+.2f},{normal.z:+.2f}); '
-                    f'{drag.plane.plane}/{drag.plane.axis} virtual mapping; right {drag.plane.horizontal}; up {drag.plane.vertical}; outline includes hidden face')
+                    f'{drag.plane.plane}/{drag.plane.axis}; right {drag.plane.horizontal}; up {drag.plane.vertical}; arrow points OUT')
                 return
             if self.frame_time-drag.face_locked_at<.12:return
-            # Face is locked. Reverse travel returns toward zero, never switches
-            # face or produces unsupported inward geometry. Extrude normal-only.
-            amount=drag.fixed_distance if drag.fixed_distance is not None else max(0.,Vector(vector).dot(drag.locked_normal))
-            if drag.geometry is None and amount>extrusion.CONFIG.negligible_distance:
-                drag.geometry=extrusion.Preview(obj,drag.face_index,extrusion.CONFIG)
+            # Direction-selection travel was consumed at lock. Signed motion now
+            # stays on this face and rebuilds only when crossing representations.
+            amount=drag.fixed_distance if drag.fixed_distance is not None else Vector(vector).dot(drag.locked_normal)
+            if drag.geometry is None and abs(amount)>extrusion.CONFIG.negligible_distance:
+                drag.geometry=signed_extrusion.SignedPreview(obj,drag.face_index,extrusion.CONFIG)
             if drag.geometry:
                 drag.geometry.update(amount)
+                amount=drag.geometry.amount
+            drag.expected_stamp=visibility.mesh_stamp(obj.data)
             drag.pinch_delta=delta
             drag.amount=amount
+            limit=drag.geometry.limit_reason if drag.geometry else ''
+            if not limit and Vector(vector).length>=drag.plane.maximum-1e-6:
+                limit=f'Mapping travel limit {drag.plane.maximum:g} reached'
+            self.target_message=(f'Face {drag.face_index}; OUT arrow; {drag.plane.plane}/{drag.plane.axis}; '
+                f'distance {amount:+.3f}; gain {drag.plane.sensitivity:g}; '
+                f'OUT {tuple(round(x,2) for x in drag.locked_normal)}; '
+                f'right {drag.plane.horizontal}; up {drag.plane.vertical}; '+limit)
         drag.valid_preview = True
         drag.last_right = dict(right)
         self.face_outline = drag.geometry.outline() if drag.geometry else self.face_outline
@@ -581,13 +605,15 @@ class Client:
             self.cancel_drag()
             raise RuntimeError('Invalid displacement on release; baseline restored')
         name, arguments, changed = obj.name,None,False
+        if operation == 'EXTRUDE':
+            self.validate_extrusion_baseline(force=True)
         if operation == 'EXTRUDE' and drag.geometry is not None:
             geometry = drag.geometry
-            changed = geometry.outward_distance > geometry.config.negligible_distance
+            changed = abs(geometry.outward_distance) > geometry.config.negligible_distance
             if changed:
                 geometry.validate_result()
                 arguments = dict(target_name=name,face_index=geometry.face_index,
-                    vector=tuple(geometry.world_vector),use_vector=True,
+                    distance=geometry.amount,use_signed=True,
                     maximum_distance=geometry.config.maximum_distance,
                     negligible_distance=geometry.config.negligible_distance)
             geometry.restore(obj)
@@ -731,7 +757,7 @@ class Client:
         self.diagnostic_at=now
         d=self.drag;r=payload['hands']['Right'];l=payload['hands']['Left']
         import json
-        print('AIR_DIAG '+json.dumps(dict(version='0.9.0',phase=self.phase,
+        print('AIR_DIAG '+json.dumps(dict(version='0.10.0',phase=self.phase,
             age=round(now-(self.frame_origin+payload['t']),3),
             identities={h:(v['valid'],v['confidence']) for h,v in payload['hands'].items()},
             clutch=l['pinching'],fingers=r['fingers'],openness=r['openness'],
@@ -741,7 +767,9 @@ class Client:
             candidate_age=payload['t']-d.intent.since if d and d.intent.since is not None else None,
             reason=_last_error or _message,target_feedback=self.target_message,amount=d.amount if d else None,
             mapping=d.plane.plane if d and d.plane else None,
-            faces=getattr(d,'face_scores',None),face=d.face_index if d else None),allow_nan=False),flush=True)
+            faces=getattr(d,'face_scores',None),visibility=getattr(d,'visibility_records',None),
+            limit=d.geometry.limit_reason if d and d.geometry and hasattr(d.geometry,'limit_reason') else None,
+            face=d.face_index if d else None),allow_nan=False),flush=True)
 
     def handle(self, event):
         global _message, _last_error
@@ -813,6 +841,28 @@ class Client:
                 self.cancel_drag()
             self.error(exc)
 
+    def validate_extrusion_baseline(self, force=False):
+        """Cancel on stale captured view/geometry; never reuse a changed face index."""
+        drag,obj=self.drag,self.target()
+        extrusion.validate_object(obj)
+        if obj.data!=drag.source_mesh and (drag.source_mesh.users or drag.source_mesh.use_fake_user):
+            raise RuntimeError('Extrusion baseline gained another owner; release and reselect')
+        if not visibility.view_unchanged(self.context(),drag.view):
+            raise RuntimeError('Viewport changed; release and reselect to capture the new view')
+        if any(abs(a-b)>1e-6 for x,y in zip(obj.matrix_world,drag.baseline) for a,b in zip(x,y)):
+            raise RuntimeError('Object transform changed externally; extrusion cancelled')
+        space=self.context()['area'].spaces.active
+        if hasattr(drag,'shading') and (space.shading.type,space.shading.show_xray)!=drag.shading:
+            raise RuntimeError('Viewport shading changed; release and reselect')
+        expected=getattr(drag,'expected_stamp',drag.source_stamp)
+        if visibility.mesh_stamp(obj.data)!=expected or visibility.mesh_stamp(drag.source_mesh)!=drag.source_stamp:
+            raise RuntimeError('Mesh changed externally; extrusion cancelled')
+        now=time.monotonic()
+        if hasattr(drag,'occluders') and (force or now-drag.visibility_checked>=.25):
+            if visibility.scene_stamp(self.context(),obj)!=drag.occluders:
+                raise RuntimeError('Visible scene changed; release and reselect')
+            drag.visibility_checked=now
+
     def check_tracking(self, now):
         if now - self.last_input >= .5:
             self.tracking, self.hovered = False, None
@@ -825,7 +875,11 @@ class Client:
             if obj is None or not viewport.eligible(obj, context) or (self.drag.geometry is not None and obj.data != self.drag.geometry.mesh) or (self.drag.geometry is None and hasattr(self.drag, 'source_mesh') and obj.data != self.drag.source_mesh):
                 self.cancel_drag()
                 self.error("Drag target disappeared or became unsupported")
-            elif ((getattr(self.drag, 'lost_since', None) is not None and
+            elif self.clutch and getattr(self.drag,'mode',None)=='EXTRUDE':
+                try:self.validate_extrusion_baseline()
+                except (ValueError,RuntimeError) as exc:
+                    self.cancel_drag();self.error(str(exc))
+            if self.drag and ((getattr(self.drag, 'lost_since', None) is not None and
                    now - self.drag.lost_since >= self.drag.intent_config.loss_timeout)
                   or now - self.last_present >= .5):
                 self.cancel_drag()

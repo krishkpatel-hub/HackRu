@@ -1,4 +1,6 @@
-> Current 0.7.0 controls, launch and verification: [clutch handoff](../../docs/clutch_handoff.md). Historical milestones follow.
+> Current 0.8.0 controls, build and evidence: [clutch handoff](../../docs/clutch_handoff.md). Earlier versions below are historical.
+
+> Historical 0.7.0 controls, launch and verification: [clutch handoff](../../docs/clutch_handoff.md). Historical milestones follow.
 
 > Current 0.6.0 integration: [two-hand selection and precision handoff](../../docs/enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
 

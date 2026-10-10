@@ -102,7 +102,7 @@ status
 quit
 ```
 
-Typed input now reuses V's parser and UUID emitter: `create cube`, `create sphere`, `create cylinder`, `create triangular prism`, `rotate`, `rotate x/y/z`, `scale`, `extrude`, `move`, `cancel`, and `undo`. Strict `spawn <shape>` aliases are translated to V's create phrase. `quit`, EOF, or Ctrl-C stops workers and transport; no stale replay occurs. `QUEUED` is not an acknowledgement. No camera/audio packages or keys are needed for typed/synthetic operation. Optional `--camera N`, `--mic`, and `--synthetic` are documented in [MOVE handoff](move_handoff.md); discover N through the hands module before selecting it.
+Typed input now reuses V's parser and UUID emitter: `create cube`, `create sphere`, `create cylinder`, `create triangular prism`, `rotate`, `rotate x/y/z`, `scale`, `extrude`, `move`, `cancel`, and `undo`. Strict `spawn <shape>` aliases are translated to V's create phrase. `quit`, EOF, or Ctrl-C stops workers and transport; no stale replay occurs. `QUEUED` is not an acknowledgement. No camera/audio packages or keys are needed for typed/synthetic operation. Optional camera/audio flags and explicit `--two-hands` / `--legacy-hands` selection are documented in [the current handoff](clutch_handoff.md); discover camera indices through the hands module before selecting them.
 
 In the legacy single-cursor fallback, ROTATE uses horizontal displacement around a world axis; SCALE uses upward vertical displacement to enlarge. The revised clutch stream uses Right whole-hand palm translation, twist and openness, plus distinct Right pinch extrusion; Left selects only. Axis/angle/factor appear locally in the sidebar/cursor text.
 

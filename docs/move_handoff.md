@@ -1,4 +1,6 @@
-> Current 0.7.0 controls and verification: [clutch handoff](clutch_handoff.md). The material below is historical and does not establish a combined 0.7.0 live pass.
+> Current 0.8.0 Left-clutch/Right-whole-hand controls: [current handoff](clutch_handoff.md). Material below is historical.
+
+> Historical 0.7.0 controls and verification: [0.7 clutch handoff](clutch_handoff_0.7.md). The material below is historical and does not establish a combined 0.7.0 live pass.
 
 > Current 0.6.0 integration: [two-hand selection and precision](enhancement_handoff.md). The results below are historical.
 

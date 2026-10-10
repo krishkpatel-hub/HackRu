@@ -707,7 +707,12 @@ class Client:
             action = payload["action"]
             if self.drag and action in {"spawn", "set_mode", "precision"}:
                 raise RuntimeError("Release or cancel the active drag first")
-            with bpy.context.temp_override(**self.context()):
+            context = self.context()
+            # Native Undo replaces Scene/ViewLayer RNA. Keeping explicit data
+            # overrides across it can leave Blender evaluating the freed scene
+            # during the operator's post-update. Resolve data through its stable
+            # Window instead; still validate the captured scene/view beforehand.
+            with bpy.context.temp_override(**{key: context[key] for key in ('window','area','region')}):
                 if action == "spawn":
                     result = bpy.ops.air_modeler.create_primitive("EXEC_DEFAULT", True, shape=payload["shape"])
                     if result != {"FINISHED"}:

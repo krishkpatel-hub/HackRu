@@ -106,10 +106,16 @@ Actually performed:
 - Live laptop camera (index 2, headless, run in a thread): ~29 Hz `hand_frame`, hand detected in some frames, `stop_event` ends the thread and releases the camera. (Index 0 was a phone feed at 1080p: ~24 Hz and black.) Camera access had to be granted to the host terminal first.
 
 - Live hand session, laptop camera index 2, preview window, CLI (`--camera 2`), ~2.3 min, 4,087 `hand_frame`s: the tester ran open hand, pinch/hold, move+release, and out-of-view/return, and reported all behaved correctly with the lowest pinch ratio seen = **0.12** (default `pinch_start` 0.35 leaves ample margin). Log: 11 gestures = 4 clean start/end pairs and 7 `tracking_lost` cancels (each exactly once; none restarted while still pinched). Cursor u/v stayed in 0.05–0.97 / 0.13–0.94. Whether individual cancels were deliberate hand-outs or MediaPipe dropouts was not recorded.
-- Three loss gaps of 0.34 s, 0.48 s and 0.59 s occurred mid-pinch: the first two were absorbed (same gesture), the third cancelled. These sit near `loss_cancel_s` (0.5), so if real pinches get cancelled by brief dropouts, raise `loss_cancel_s` (e.g. 0.8) at the cost of slower cancel.
+- **Controlled test (guided by spoken cues, `--camera 2`, defaults unchanged, 2026-10-10):** 5 repetitions of open → pinch-hold 10 s moving slowly → release → pinch → leave view, plus a 2-repetition rerun because rep 1 had no pinch (the tester wasn't pinching yet) and rep 3's hold was broken by the tester's fingers opening (ratio 0.15 → 0.66, release correctly detected). 6 usable reps:
+  - Holds: 5 of 5 completed holds of 9.5–10.2 s ended with exactly one `gesture_end` after the cue to release; the 4.2 s rep-3 hold ended early because the fingers opened (ratio ≥ 0.6) and was correctly ended, then re-started once.
+  - Release: every pinch that was opened produced one `gesture_end` and the next pinch could start again (no stuck gesture).
+  - Deliberate exits while pinched: 5 → exactly 5 `gesture_cancel` (`tracking_lost`), one per exit, ~0.53 s after loss; 1 further exit happened after the tester had already opened the hand, giving the normal `gesture_end` and no cancel.
+  - **Unexpected cancels: 0 attributable to the detector.** The one cancel during a hold (rep 3) followed the fingers opening to 0.62 and the hand leaving view; treated as a deliberate/user-caused exit. 1 brief dropout (0.35 s) mid-pinch was absorbed with the gesture intact. **`loss_cancel_s` stays 0.5; no tuning, nothing to coordinate with Pro.**
+  - Ratios (live): pinch median 0.12–0.21 (min 0.02–0.04); open hand median 1.0–1.15 (typical 0.9–1.4, max seen 1.8). The 0.35/0.60 thresholds sit comfortably between them (≈0.2 above worst-case pinch, ≈0.3 below typical open).
+- **Ctrl-C:** CLI with the preview window, SIGINT after 8 s → process exits with code 0 within 1 s, no tracker process left, the camera reopens immediately afterwards. (The window closing was inferred from process exit, not watched.)
 
 **Not verified:**
-- The *open-hand* ratio value on a live hand (not logged), and whether the cancels were all intentional.
+- Longer sessions (>10 min), other lighting/backgrounds, and a second person's hand; the tests used one tester in a dim room.
 - Windows/Linux (code has no platform-specific paths besides the macOS main-thread rule).
 - Tuning of the thresholds/smoothing on real hand motion; dropout behavior of MediaPipe when fingers overlap in a pinch.
 

@@ -8,6 +8,7 @@ We wanted a way to start making shapes using the movements you already use to de
 
 > **Hackathon prototype:** the implementation currently lives on [`feature/blender`](https://github.com/krishkpatel-hub/HackRu/tree/feature/blender). The inspected add-on is **0.12.0** and still appears as **Air Modeler** in Blender. Gesture reliability is being refined; the latest combined physical acceptance checks remain unperformed.
 
+[![Watch the video]([https://youtube.com](https://www.youtube.com/watch?v=iJkz58EZ7BM))]([https://youtu.be](https://www.youtube.com/watch?v=iJkz58EZ7BM))
 ## What it can do
 
 - Create cubes, UV spheres, cylinders, and triangular prisms through sidebar buttons, typed commands, or voice.

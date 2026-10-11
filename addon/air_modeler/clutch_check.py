@@ -215,11 +215,18 @@ class Check(helpers.Check):
         yield from self.until(lambda:self.runtime().drag.face_index is not None,'automatic face lock')
         assert self.runtime().drag.face_index==index and self.runtime().face_outline
         assert geometry.snapshot(self.obj().data)==before,'direction lock mutated topology'
-        yield .15
+        yield from self.until(lambda:self.runtime().drag.manipulation_ready,'highlight rebase complete')
         return center,normal
 
-    def mapped_vector(self, vector, event='NONE'):
+    def mapped_vector(self, vector, event='NONE', raw=False):
         drag=self.runtime().drag
+        vector=Vector(vector)
+        # Most lifecycle tests request a resulting signed amount. Explicit raw
+        # tests below independently verify the real input transfer function.
+        if not raw and drag.face_index is not None and drag.fixed_distance is None:
+            along=vector.dot(drag.locked_normal)
+            if abs(along)>1e-9:
+                vector+=drag.locked_normal*(drag.distance_band if along>0 else -drag.distance_band)
         du=Vector(vector).dot(Vector(drag.plane.horizontal))/drag.plane.sensitivity/drag.aspect
         dv=-Vector(vector).dot(Vector(drag.plane.vertical))/drag.plane.sensitivity
         uv=drag.pinch_reference[0]+du,drag.pinch_reference[1]+dv
@@ -227,7 +234,7 @@ class Check(helpers.Check):
         return uv
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,10,0)
+        assert self.module.bl_info['version']==(0,11,0)
         self.window.scene.cursor.location=(0,0,0)
         self.line('create cube')
         yield from self.until(lambda:len(self.objects())==1,'spawn cube')
@@ -477,6 +484,33 @@ class Check(helpers.Check):
             'zero extrusion adds no Undo; sentinel creation is undone',settle=.2)
         print('PASS held Right pinch requires rearm, approach cannot steal MOVE, zero-distance restoration with no Undo entry',flush=True)
 
+        # Movement throughout the highlight must be consumed, not catch up on
+        # the first manipulation frame. Then verify raw gain/deadband/reversal.
+        self.line('extrude plane xz axis z');yield .12
+        yield from self.start(right=palm(),uv=(.5,.5))
+        self.right_pinch(event='START');yield from self.lock('EXTRUDE')
+        self.mapped_vector((0,0,.35),raw=True)
+        yield from self.until(lambda:self.runtime().drag.face_index is not None,'rebase test face lock')
+        drag=self.runtime().drag
+        self.mapped_vector((0,0,.6),raw=True)
+        yield from self.until(lambda:drag.manipulation_ready,'consume highlight movement')
+        yield .1
+        assert drag.geometry is None and geometry.snapshot(self.obj().data)==mesh_before,'highlight travel jumped'
+        self.mapped_vector((0,0,.02),raw=True);yield .12
+        assert drag.geometry is None,'sub-deadband jitter created geometry'
+        self.mapped_vector((0,0,.6),raw=True)
+        yield from self.until(lambda:drag.geometry is not None,'raw baseline distance')
+        assert abs(drag.amount-(.6-drag.distance_band))<1e-6
+        chosen=drag.face_index;held=geometry.snapshot(self.obj().data);yield .15
+        assert geometry.snapshot(self.obj().data)==held,'holding accumulated motion'
+        self.mapped_vector((0,0,-.6),raw=True)
+        yield from self.until(lambda:drag.amount<0,'raw signed reversal')
+        assert abs(drag.amount-(-.6+drag.distance_band))<1e-6 and drag.face_index==chosen
+        self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'raw input cancellation')
+        assert geometry.snapshot(self.obj().data)==mesh_before
+        yield from self.idle()
+        print('PASS highlight movement consumed, raw deadband/gain, stationary hold, same-face reversal and exact cancel',flush=True)
+
         snapshots=[mesh_before]
         for distance in (.5,.25):
             index=max(range(len(self.obj().data.polygons)),key=lambda i:self.obj().data.polygons[i].center.z)
@@ -548,6 +582,8 @@ class Check(helpers.Check):
         self.mapped_vector((.35,.35,0));yield .3
         assert self.runtime().drag.face_index is None and self.runtime().drag.geometry is None
         assert geometry.snapshot(self.obj().data)==mesh_before
+        assert self.runtime().face_outline and 'ambiguous' in self.runtime().mode_label()
+        assert 'Tentative face' in self.runtime().target_message
         self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'ambiguous cancellation');yield from self.idle()
         print('PASS competing visible-face diagonal remains direction pending without topology',flush=True)
 

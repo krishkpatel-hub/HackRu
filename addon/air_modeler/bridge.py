@@ -6,7 +6,7 @@ import socket
 import time
 from types import SimpleNamespace
 
-from . import viewport, transforms, extrusion, intent, planes, visibility, signed_extrusion
+from . import viewport, transforms, extrusion, intent, planes, visibility, signed_extrusion, extrusion_input
 from .selection import Selector
 import math
 
@@ -156,6 +156,8 @@ class Client:
         axis=self.drag.axis if self.drag and self.drag.mode=="ROTATE" else self.axis
         if not self.clutch and axis=="FREE":axis="Z"
         label = ("ROTATE free" if axis=="FREE" else f"ROTATE world {axis}") if self.mode == "ROTATE" else self.mode
+        if self.clutch and self.drag and self.drag.mode=='EXTRUDE':
+            label=getattr(self.drag,'extrusion_stage','EXTRUDE ARMED')
         if self.drag and self.drag.mode == "ROTATE":
             label += f" {math.degrees(self.drag.amount):+.1f}°"
         elif self.drag and self.drag.mode == "SCALE":
@@ -490,7 +492,11 @@ class Client:
             drag.pinch_delta = (0.,0.)
             drag.direction_candidate = None
             drag.direction_since = None
-            self.target_message = f'{obj.name}; direction pending; {drag.plane.plane}/{drag.plane.axis} virtual mapping; right {drag.plane.horizontal}; up {drag.plane.vertical}'
+            drag.direction_window=extrusion_input.DirectionWindow()
+            drag.tentative_face=None
+            drag.extrusion_stage='EXTRUDE ARMED'
+            drag.manipulation_ready=False
+            self.target_message = f'{obj.name}; EXTRUDE ARMED — drag to choose a face; {drag.plane.plane}/{drag.plane.axis} virtual mapping; right {drag.plane.horizontal}; up {drag.plane.vertical}'
         drag.last_right = dict(right)
         self.phase = 'DRAGGING'
         _last_error = None
@@ -520,6 +526,7 @@ class Client:
                 drag.pinch_reference = right['u']-drag.pinch_delta[0],right['v']-drag.pinch_delta[1]
                 if drag.face_index is None:
                     drag.direction_candidate=None
+                    drag.direction_window=extrusion_input.DirectionWindow()
         obj = self.target()
         if drag.mode == 'ROTATE':
             drag.rotation_delta = transforms.hand_rotation(right['orientation'],drag.orientation_reference,
@@ -542,19 +549,28 @@ class Client:
             delta = right['u']-drag.pinch_reference[0],right['v']-drag.pinch_reference[1]
             vector = drag.plane.displacement(delta[0]*drag.aspect,delta[1])
             if drag.face_index is None:
-                # Small direction threshold is independent of extrusion gain.
-                if math.hypot(delta[0]*drag.aspect,delta[1]) < .018:
+                evidence=drag.direction_window.update(self.frame_time,(delta[0]*drag.aspect,delta[1]))
+                vector=drag.plane.displacement(*evidence)
+                drag.direction_evidence=evidence
+                # Direction uses a bounded window; live deformation uses the once-filtered cursor.
+                if math.hypot(*evidence) < .018:
                     drag.direction_candidate=None;self.face_outline=()
-                    self.target_message = 'Pinch held: drag a little to choose extrusion direction'
+                    drag.extrusion_stage='EXTRUDE ARMED'
+                    self.target_message = 'EXTRUDE ARMED: move Right hand deliberately to choose a face'
                     return
                 choice,scores,reason=visibility.choose(drag.face_candidates,vector,drag.plane,drag.direction_candidate)
                 drag.face_scores=scores
                 if choice is None:
                     drag.direction_candidate=None
-                    if self.frame_time-getattr(drag,'highlight_at',-1)>.15:self.face_outline=()
-                    self.target_message=reason+'; candidate only, no deformation'
+                    candidate=visibility.tentative(drag.face_candidates,scores,drag.tentative_face)
+                    drag.tentative_face=candidate[0] if candidate else None
+                    self.face_outline=candidate[3] if candidate else ()
+                    drag.extrusion_stage='EXTRUDE ARMED — ambiguous'
+                    self.target_message=(f'Tentative face {candidate[0]}; ' if candidate else '')+reason+'; NO deformation'
                     return
                 index,normal,center,outline=choice
+                drag.tentative_face=index
+                drag.extrusion_stage='EXTRUDE ARMED — candidate'
                 self.target_message=f'Candidate face {index}; hold direction to lock; no deformation'
                 if drag.direction_candidate!=index:
                     if self.frame_time-getattr(drag,'highlight_at',-1)>.15:self.face_outline=()
@@ -562,19 +578,31 @@ class Client:
                     return
                 if self.frame_time-drag.direction_since>=.06:
                     self.face_outline=outline;drag.highlight_at=self.frame_time
-                if self.frame_time-drag.direction_since<.10:return
+                if self.frame_time-drag.direction_since<.10 or not drag.direction_window.ready:return
                 drag.face_index=index;drag.locked_normal=normal
                 drag.face_locked_at=self.frame_time
+                drag.extrusion_stage='EXTRUDE FACE LOCKED'
+                score=next(r for r in scores if r['face']==index)
+                drag.distance_band=extrusion_input.DEADBAND_HEIGHT*drag.plane.sensitivity*score['observable']
                 drag.pinch_reference=right['u'],right['v']
                 drag.pinch_delta=(0.,0.)
                 self.face_outline=outline
                 self.target_message=(f'Face {index}; normal ({normal.x:+.2f},{normal.y:+.2f},{normal.z:+.2f}); '
                     f'{drag.plane.plane}/{drag.plane.axis}; right {drag.plane.horizontal}; up {drag.plane.vertical}; arrow points OUT')
                 return
-            if self.frame_time-drag.face_locked_at<.12:return
+            if not drag.manipulation_ready:
+                # Consume all motion during the visible lock pause too; the first
+                # manipulation sample starts at zero rather than catching up.
+                drag.pinch_reference=right['u'],right['v'];drag.pinch_delta=(0.,0.)
+                if self.frame_time-drag.face_locked_at>=.12:
+                    drag.manipulation_ready=True
+                    self.target_message=f'Face {drag.face_index} locked; move Right hand along OUT arrow, reverse for inward'
+                return
             # Direction-selection travel was consumed at lock. Signed motion now
             # stays on this face and rebuilds only when crossing representations.
-            amount=drag.fixed_distance if drag.fixed_distance is not None else Vector(vector).dot(drag.locked_normal)
+            drag.raw_distance=Vector(vector).dot(drag.locked_normal)
+            amount=drag.fixed_distance if drag.fixed_distance is not None else extrusion_input.distance(drag.raw_distance,drag.distance_band)
+            drag.extrusion_stage='EXTRUDE DRAGGING' if abs(amount)>extrusion.CONFIG.negligible_distance else 'EXTRUDE FACE LOCKED'
             if drag.geometry is None and abs(amount)>extrusion.CONFIG.negligible_distance:
                 drag.geometry=signed_extrusion.SignedPreview(obj,drag.face_index,extrusion.CONFIG)
             if drag.geometry:
@@ -757,7 +785,7 @@ class Client:
         self.diagnostic_at=now
         d=self.drag;r=payload['hands']['Right'];l=payload['hands']['Left']
         import json
-        print('AIR_DIAG '+json.dumps(dict(version='0.10.0',phase=self.phase,
+        print('AIR_DIAG '+json.dumps(dict(version='0.11.0',phase=self.phase,
             age=round(now-(self.frame_origin+payload['t']),3),
             identities={h:(v['valid'],v['confidence']) for h,v in payload['hands'].items()},
             clutch=l['pinching'],fingers=r['fingers'],openness=r['openness'],
@@ -767,6 +795,12 @@ class Client:
             candidate_age=payload['t']-d.intent.since if d and d.intent.since is not None else None,
             reason=_last_error or _message,target_feedback=self.target_message,amount=d.amount if d else None,
             mapping=d.plane.plane if d and d.plane else None,
+            extrusion_stage=getattr(d,'extrusion_stage',None),pinch_event=r['event'],
+            pinch_valid=r['extrude_pose'],pinching=r['pinching'],observed_release=r['open'],
+            pinch_feedback=d.intent.feedback if d else None,
+            direction=getattr(d,'direction_evidence',None),
+            direction_coherence=d.direction_window.coherence if d and hasattr(d,'direction_window') else None,
+            raw_distance=getattr(d,'raw_distance',None),deadband=getattr(d,'distance_band',None),
             faces=getattr(d,'face_scores',None),visibility=getattr(d,'visibility_records',None),
             limit=d.geometry.limit_reason if d and d.geometry and hasattr(d.geometry,'limit_reason') else None,
             face=d.face_index if d else None),allow_nan=False),flush=True)

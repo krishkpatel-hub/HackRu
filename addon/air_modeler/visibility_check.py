@@ -34,6 +34,30 @@ def sequence():
             print('PASS',projection,shape,'each visible side, hidden exclusion, same face for signed intent',flush=True)
             bpy.data.objects.remove(obj,do_unlink=True)
 
+    # World normals must agree with transformed face tangents under nonuniform
+    # scale, rotation and reflection. Inspect every side in the actual viewport.
+    for scale in ((1.7,.6,1.2),(-1.7,.6,1.2)):
+        with bpy.context.temp_override(**context):bpy.ops.air_modeler.create_primitive(shape='cube')
+        obj=window.view_layer.objects.active;obj.rotation_euler=(.4,-.7,.2);obj.scale=scale
+        window.view_layer.update()
+        for polygon in obj.data.polygons:
+            normal=(obj.matrix_world.to_3x3().inverted().transposed()@polygon.normal).normalized()
+            center=obj.matrix_world@polygon.center
+            points=[obj.matrix_world@obj.data.vertices[i].co for i in polygon.vertices]
+            assert abs(normal.dot(points[1]-points[0]))<1e-6 and abs(normal.dot(points[2]-points[0]))<1e-6
+            rv.view_rotation=normal.to_track_quat('Z','Y');rv.view_location=center;rv.view_distance=10;rv.view_perspective='ORTHO'
+            area.tag_redraw();yield .2
+            view=viewport.mapping(context);faces,_=vis.visible_faces(obj,context,view)
+            actual=next(f for f in faces if f[0]==polygon.index)
+            assert actual[1].dot(normal)>.99999
+            mapping=planes.automatic(view[1].view_matrix.inverted().col[0].xyz,view[1].view_matrix.inverted().col[1].xyz)
+            mapped=Vector(mapping.horizontal)*normal.dot(Vector(mapping.horizontal))+Vector(mapping.vertical)*normal.dot(Vector(mapping.vertical))
+            for sign in (1,-1):
+                chosen,scores,error=vis.choose(faces,mapped*sign,mapping)
+                assert chosen and chosen[0]==polygon.index,(scale,polygon.index,scores,error)
+        bpy.data.objects.remove(obj,do_unlink=True)
+    print('PASS rotated nonuniform/reflected world normals, transformed tangents and signed projected selection',flush=True)
+
     with bpy.context.temp_override(**context):bpy.ops.air_modeler.create_primitive(shape='cube')
     obj=window.view_layer.objects.active
     for projection in ('PERSP','ORTHO'):
@@ -71,6 +95,19 @@ def sequence():
     assert vis.choose([(2,Vector((0,0,1)),Vector(),())],(1,0,0),mapping)[0] is None
     parallel=[(0,Vector((1,0,0)),Vector((1,0,0)),()),(1,Vector((1,0,0)),Vector((1,1,0)),())]
     assert vis.choose(parallel,(1,0,0),mapping)[0] is None
+    # These normals differ in 3D but are indistinguishable in XY. The old
+    # full-world score (.6 versus 1) arbitrarily preferred the second face.
+    projected_tie=[(0,Vector((.6,0,.8)),Vector(),()),(1,Vector((1,0,0)),Vector(),())]
+    chosen,scores,_=vis.choose(projected_tie,(1,0,0),mapping)
+    assert chosen is None and all(abs(r['alignment']-1)<1e-6 for r in scores)
+    assert vis.tentative(projected_tie,scores)[0]==0
+    assert vis.tentative(projected_tie,scores,previous=1)[0]==1
+    chosen,scores,_=vis.choose(fake,(1,.1,0),mapping)
+    assert chosen and chosen[0]==0 and vis.tentative(fake,scores)[0]==0
+    degenerate=[(2,Vector((.1,0,.995)).normalized(),Vector(),())]
+    chosen,scores,_=vis.choose(degenerate,(1,0,0),mapping)
+    assert chosen is None and vis.tentative(degenerate,scores) is None
+    print('PASS projected-direction tie rejects false winner; tentative highlight cannot lock; clear/degenerate evidence',flush=True)
     print('PASS materially ambiguous, distinct parallel patches and unobservable mappings remain pending',flush=True)
     bpy.ops.wm.quit_blender()
 

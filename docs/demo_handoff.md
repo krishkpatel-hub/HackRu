@@ -1,4 +1,4 @@
-> Current **0.10.0** visible-face signed extrusion: [handoff](clutch_handoff.md) and [physical checklist](physical_acceptance.md). Installed user add-on was verified as 0.9.0 on disk; update/restart is pending. All 0.10 physical checks remain NOT RUN. The material below records historical versions.
+> Current **0.11.0** stable face choice and signed dragging: [handoff](clutch_handoff.md) and [physical checklist](physical_acceptance.md). Installed add-on was 0.10.0 on disk; user reports EXTRUDE arms but face choice/dragging is unpredictable. Installation and all 0.11 physical checks remain pending. Material below records historical versions.
 
 > Historical **0.9.0** stabilization: [handoff](clutch_handoff_0.9.md) and [physical checklist](physical_acceptance_0.9.md). Material below records earlier versions; 0.9 physical checks are NOT RUN.
 

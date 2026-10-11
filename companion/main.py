@@ -90,7 +90,7 @@ def main(argv=None):
     if args.replay_landmarks:
         from companion.hands.recording import run_replay
         worker('Replay',lambda:run_replay(args.replay_landmarks,server.emit,stop,lambda:server.session_id))
-    print('Air Modeler companion 0.10.0; hands profile left_clutch_v3',flush=True)
+    print('Air Modeler companion 0.11.0; hands profile left_clutch_v3',flush=True)
     if args.mic:
         worker('Voice', voice)
     help_text = ('Connect in Blender, wait for READY. Type create cube/sphere/cylinder/triangular prism, '

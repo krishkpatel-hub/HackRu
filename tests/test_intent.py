@@ -117,3 +117,19 @@ def test_twist_unwrap_and_invalid_measurement_reacquisition_reset_references():
     assert value.feedback=='Degenerate palm'
     assert value.update(.4,right(angle=.8,palm=(.7,.5))) is None
     assert value.update(.8,right(angle=.8,palm=(.7,.5))) is None
+
+
+def test_slow_pinch_timeout_never_falls_through_to_move_and_reopen_rearms():
+    value=state()
+    approach=right(palm=(.8,.3),pinch_pending=True,open=False)
+    for t in (.1,.4,.8,1.2):
+        assert value.update(t,approach) is None
+        assert value.candidate != 'MOVE'
+    assert 'timed out' in value.feedback
+    late=pinch(palm=(.8,.3))
+    for t in (1.3,1.5):
+        assert value.update(t,late if t==1.3 else dict(late,event='NONE')) is None
+    assert value.update(1.6,right()) is None
+    fresh=pinch()
+    assert value.update(1.7,fresh) is None
+    assert value.update(1.86,dict(fresh,event='NONE'))=='EXTRUDE'

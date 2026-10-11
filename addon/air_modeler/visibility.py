@@ -126,16 +126,20 @@ def visible_faces(obj,context,view):
 def choose(faces,vector,mapping,previous=None):
     """Magnitude chooses a visible face; sign is kept for outward/inward intent."""
     direction=Vector(vector)
-    if direction.length<1e-8:return None,[], 'Drag along the selected mapping axis'
-    direction.normalize();ranked=[]
+    horizontal=Vector(mapping.horizontal);vertical=Vector(mapping.vertical)
+    if mapping.axis!='NONE':
+        component='XYZ'.index(mapping.axis)
+        horizontal=Vector(tuple(v if i==component else 0. for i,v in enumerate(horizontal)))
+        vertical=Vector(tuple(v if i==component else 0. for i,v in enumerate(vertical)))
+    motion=Vector((direction.dot(horizontal),direction.dot(vertical)))
+    if motion.length<1e-8:return None,[], 'Drag along the selected mapping axis'
+    motion.normalize();ranked=[]
     for index,normal,center,outline in faces:
-        h=normal.dot(Vector(mapping.horizontal));v=normal.dot(Vector(mapping.vertical))
-        if mapping.axis!='NONE':
-            h*=abs(Vector(mapping.horizontal)['XYZ'.index(mapping.axis)])
-            v*=abs(Vector(mapping.vertical)['XYZ'.index(mapping.axis)])
-        observable=math.hypot(h,v)
-        alignment=normal.dot(direction)
-        ranked.append(dict(face=index,alignment=alignment,observable=observable))
+        projected_normal=Vector((normal.dot(horizontal),normal.dot(vertical)))
+        observable=projected_normal.length
+        alignment=projected_normal.normalized().dot(motion) if observable>=.25 else 0.
+        ranked.append(dict(face=index,alignment=alignment,observable=observable,
+            world_alignment=normal.dot(direction.normalized()) if direction.length else 0.))
     useful=[r for r in ranked if r['observable']>=.25]
     useful.sort(key=lambda r:(-abs(r['alignment']),r['face']))
     if not useful:return None,ranked,f'Visible normals cannot use {mapping.plane}/{mapping.axis}; choose another plane/axis or view'
@@ -155,3 +159,13 @@ def choose(faces,vector,mapping,previous=None):
         return None,ranked,'Several visible faces share this direction; expose one distinct face or use a simpler mesh'
     chosen=min(equivalent,key=lambda r:r['face'])
     return lookup[chosen['face']],ranked,''
+
+
+def tentative(faces,scores,previous=None):
+    """An explicitly ambiguous highlight is not permission to deform or lock."""
+    usable=[r for r in scores if r['observable']>=.25 and abs(r['alignment'])>=.55]
+    if not usable:return None
+    best=max(usable,key=lambda r:(abs(r['alignment']),-r['face']))
+    retained=next((r for r in usable if r['face']==previous and abs(best['alignment'])-abs(r['alignment'])<.12),None)
+    index=(retained or best)['face']
+    return next(f for f in faces if f[0]==index)

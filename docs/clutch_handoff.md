@@ -1,46 +1,63 @@
-# Air Modeler 0.10.0: visible-face signed extrusion
+# Air Modeler 0.11.0: stable face choice and signed dragging
 
 Branch `feature/blender`; final delivery SHA is reported in chat. Previous release:
-`c58cf8bbcbe5839e38cd3da5dd9577c138bd79e9` (0.9.0). Its package is preserved at
-`dist/air_modeler-baseline-0.9.0.zip`; [engineering record](clutch_handoff_0.9.md)
-and [physical record](physical_acceptance_0.9.md) are archived. All scene files
-remain untouched. Main is not merged. Prepared PR: `/tmp/air-modeler-integration-pr.md`;
-GitHub permission failure is not retried or treated as a rehearsal blocker.
+`8132c0adff11ad0d559df4617a9bff2e6e3da11b` (0.10.0). Its package is preserved at
+`dist/air_modeler-baseline-0.10.0.zip`; [engineering record](clutch_handoff_0.10.md)
+and [physical record](physical_acceptance_0.10.md) are archived. All scenes are
+preserved. Main is not merged. Prepared PR: `/tmp/air-modeler-integration-pr.md`;
+the existing GitHub permission failure is not retried and does not block rehearsal.
 
 ## What was diagnosed
 
-The user reports selection, MOVE, SCALE and ROTATE now work reasonably well.
-Their hand recognition, thresholds, gains, mappings and transaction behavior are
-unchanged. Hand/voice teammate modules and shared protocol remain unchanged.
-Only the companion's version banner changes. No captured live failure sequence
-was supplied, so recognition and comfortable physical travel remain observations
-to collect, not diagnosed threshold problems.
+**Actual user observation on installed 0.10.0:** “EXTRUDE arms, but face choice or
+dragging is unpredictable.” This establishes successful arming and a physical
+usability failure; it does not identify a particular face, input trace, or timing
+fault. Earlier selection/MOVE/SCALE/ROTATE success remains a separate report.
 
-The actual 0.9 source admitted hidden faces deliberately, scored only positive
-outward alignment, and clamped negative distance to zero. Those were concrete
-causes of the mismatch with the requested behavior. Its face-selection travel was
-already consumed at lock; the existing pre-close anchor, palm-relative cursor,
-frozen opening coordinate and release protection are retained.
+Source inspection found two concrete controller problems addressed here:
 
-At inspection, installed user add-on **on disk** and source both said **0.9.0**.
-The running companion command used this checkout, camera 0/mic 0/two-hands/PTT;
-its loaded Python modules were not introspected, so exact running-code equality
-was not established. That identified process was interrupted cleanly for isolated
-TCP tests. The user's Blender session and scene were left open and untouched.
-The installed user add-on remains 0.9.0 until the update below is confirmed.
+- Full-world normal scores favored a larger in-plane projection even when two
+  normals projected to the same direction. For XY, normals `(0.6,0,0.8)` and
+  `(1,0,0)` scored 0.6 and 1 for the same horizontal intent. Both now score 1 and
+  remain ambiguous. A tentative outline explains the pending choice without edits.
+- Although face lock rebased the cursor, the following 120 ms highlight pause
+  accumulated movement. Its first deformation could jump to that accumulated
+  distance. The pause now continuously rebases and its final sample is zero.
+
+Face recognition used individual frame directions. It now uses a bounded 120 ms
+median displacement window, at least three observations spanning 80 ms, with
+75% within 15 degrees of the median direction, before allowing a stable winner.
+This filters recognition only. Continuous deformation keeps the existing single
+palm filter and gains a continuous symmetric deadband, without another EMA.
+
+The genuine historical `real_still_pinch.json` recording contains 259 observations
+and two pinch/open cycles. Replaying the unchanged producer gives two START/END
+pairs; held corrected frame motion has median 0.00103, p90 0.00262 and maximum
+0.01792 image-height units. It contains only sparse image landmarks, no world
+landmarks/full finger pose, and cannot calibrate current isolated-pinch versus
+fist recognition. The 0.003-height deformation deadband is provisional for live
+comfort, not a claim that this recording proves steady geometry or current-user
+calibration. Gesture thresholds, pre-close anchors, opening freeze, producer
+smoothing, hand/voice modules, geometry helpers and shared protocol are unchanged.
+The companion only changes its version banner.
+
+Installed user add-on **on disk** was verified as **0.10.0**; loaded module equality
+was not introspected. The positively identified companion using camera 0/mic 0,
+two-hands/PTT was stopped with SIGINT for isolated TCP tests. The user's Blender
+session and scenes were left open and untouched. Installation of 0.11.0 is pending.
 
 ## Gestures and mapping
 
 Left thumb/index pinch selects and holds the object only; Left motion is inert.
 Right open-palm translation MOVE, whole-finger SCALE and quaternion ROTATE retain
-0.9 controls and sensitivity. Right fresh isolated thumb/index pinch enters
-EXTRUDE direction pending. There is no required face click. Release Left or Right
+existing controls and sensitivity. Right fresh isolated thumb/index pinch enters
+visible EXTRUDE ARMED. There is no required face click. Release Left or Right
 first commits extrusion once; reopen both required hands before rearming.
 
 At Left selection we capture the connected 3D viewport's **WINDOW region**, its
 projection/view matrices and dimensions, target transform, mesh identity and
 geometry/attribute baseline. At EXTRUDE activation the mapping is resolved **before**
-face discovery: AUTO chooses the cardinal XY/XZ/YZ plane with greatest projected
+face ranking: AUTO chooses the cardinal XY/XZ/YZ plane with greatest projected
 area (canonical order breaks ties), optionally constrained by an explicit world
 axis. The two signed plane axes map to screen right/up. This is a deterministic
 virtual world mapping, not inferred camera depth or inverse near-zero projection.
@@ -54,28 +71,36 @@ A visible face normal with less than 0.25 projection onto available mapping axes
 is unobservable and cannot win; feedback requests a different mapping/view.
 
 Right displacement uses `(du × camera aspect, dv)` in image-height units. At least
-0.018 height-equivalent selection travel, absolute normal alignment ≥0.55 and
+0.018 height-equivalent selection travel, absolute normalized projected-normal alignment ≥0.55 and
 separation ≥0.12 from materially different normals are required. The current
 candidate may retain with ≥0.10 separation. Candidate outline appears after
-60 ms; lock requires the same candidate for 100 ms. Ambiguity resets lock timing,
-keeps the prior candidate outline at most 150 ms with a pending label, and never
-mutates geometry. Parallel normals on different visible patches are ambiguous too, including adjacent
+60 ms; lock requires the same candidate for 100 ms plus the stable direction
+window described above. Both motion and inverse-transpose world normals are
+projected into the frozen mapping axes and normalized there. Ambiguity resets
+lock timing, shows a labeled tentative outline with 0.12 retention hysteresis,
+and never mutates geometry. The tentative face has no lock authority. Parallel normals on different visible patches are ambiguous too, including adjacent
 coplanar side quads after a prior extrusion. Only identical geometric patches are
 equivalent; smallest face index breaks that tie. Sign never chooses an invisible
 opposite face.
 
 Lock captures face identity and outward normal, consumes selection travel by
-rebasing the corrected cursor, then highlights for 120 ms before deformation.
+rebasing the corrected cursor, then highlights for 120 ms while continuously rebasing. The last highlight
+sample becomes the manipulation reference; motion during recognition or the
+pause is consumed. Feedback progresses EXTRUDE ARMED → candidate/ambiguous →
+EXTRUDE FACE LOCKED → EXTRUDE DRAGGING.
 Orange outlines the face; the green arrow points outward when its screen projection
 is meaningful. When the world-normal arrow has no screen length, a labeled **OUT (virtual drag)**
 arrow shows the required screen hand direction from the frozen mapping; the sidebar
 also shows the OUT world normal and signed axes. This does not estimate depth.
 Subsequent distance is the mapped displacement dotted with the locked outward
-normal. Positive extends; negative shortens; reversal never changes faces.
+normal, followed by a symmetric continuous deadband: signed amount =
+`sign(raw) * max(abs(raw) - band, 0)`, where band is 0.003 × gain × normal
+observability. Positive extends; negative shortens; reversal never changes faces.
 
 **Gain stays 12 world units per image-height travel**, adjustable in the sidebar
 and frozen on selection; vector length is bounded to 4 world units. An aligned
-0.05-height drag after lock gives 0.6 units. This is a verified mapping, not live
+0.05-height drag after the highlight gives 0.564 units after the 0.036-unit
+deadband (raw distance 0.6). This is a verified mapping, not live
 comfort calibration. No accumulated deltas or frame-rate multiplier. Holding
 still holds the result. Inward travel also has the geometry bound below.
 `extrude 0.5 units` / `extend 0.5 units` remain positive-only fixed commands using
@@ -161,7 +186,9 @@ unfinished geometry and free previews. All bpy work remains on the main thread.
 Sidebar **Diagnostics (2 Hz console)** reports version, identity/confidence,
 input age, pinch evidence, arbitration scores/state, candidate visibility reasons,
 area/sample count, signed alignment, observability, locked face, signed distance,
-active mapping and geometry limit/rejection. This distinguishes recognition,
+active mapping and geometry limit/rejection. New fields include EXTRUDE stage,
+pinch event/validity, observed release, recognition feedback, filtered direction
+and coherence, raw signed distance and deadband. This distinguishes recognition,
 stale context, occlusion, ambiguity, mapping and topology rejection. It never
 prints a key. Existing [private bounded landmark recording/replay](clutch_handoff_0.9.md#transactions-diagnostics-and-replay)
 is unchanged; use only if an observed recognition failure needs a capture.
@@ -175,13 +202,13 @@ the previously exposed key; never paste a replacement into chat or a command.
 ## Install and launch
 
 Existing environment is reused: Python 3.12.15, Blender 5.2.2 LTS/Python 3.13.13.
-Source and rebuilt ZIP are **0.10.0**, protocol `left_clutch_v3` unchanged.
-Installed user version is still **0.9.0 on disk** until confirmed after restart.
+Source and rebuilt ZIP are **0.11.0**, protocol `left_clutch_v3` unchanged.
+Installed user version is still **0.10.0 on disk** until confirmed after restart.
 
-1. Save a new `/Users/krishpatel/HackRu/rehearsal_0_10.blend` copy; preserve all older scenes.
+1. Save a new `/Users/krishpatel/HackRu/rehearsal_0_11.blend` copy; preserve all older scenes.
 2. Stop any companion; Blender Disconnect, disable/remove the old Air Modeler add-on.
 3. Fully quit Blender; reopen → Preferences → Add-ons → Install from Disk →
-   `/Users/krishpatel/HackRu/dist/air_modeler.zip`; enable and confirm **0.10.0**.
+   `/Users/krishpatel/HackRu/dist/air_modeler.zip`; enable and confirm **0.11.0**.
 4. Fully quit/reopen again; open the new rehearsal scene, Object Mode, Global Undo on,
    Solid shading, X-Ray off. Use a single connected 3D viewport.
 5. In Terminal, privately enter the replacement key if needed, then launch:
@@ -199,7 +226,7 @@ cd /Users/krishpatel/HackRu && /Users/krishpatel/HackRu/.venv/bin/python -m comp
 
 Camera 0 and mic 0 (MacBook Air Microphone) were user-confirmed; worker `preview=False`
 remains. Do not reinstall working dependencies. Connect from intended viewport's
-N sidebar. Require companion 0.10.0/profile v3, Blender Connected/companion READY,
+N sidebar. Require companion 0.11.0/profile v3, Blender Connected/companion READY,
 actual hand observations and **Scribe session ready**. Process startup alone proves
 none of those connections. PTT starts muted; keep Terminal typed input available.
 `quit`/Ctrl+C shuts down; check camera off and terminal prompt, then
@@ -207,55 +234,56 @@ none of those connections. PTT starts muted; keep Terminal typed input available
 
 ## Verification
 
-The verification table below records automated evidence separately from physical observations.
-[Physical acceptance](physical_acceptance.md) is **NOT RUN on 0.10.0**. Historical
-standalone voice success and synthetic geometry/transport tests do not establish
-a combined live pass. Guide each physical observation separately after installation.
+Automated results are recorded below. All physical checks
+are **NOT RUN on 0.11.0**. The user's 0.10 report is a partial real observation of
+arming plus unpredictable face choice/dragging, not a combined live pass.
+Historical standalone voice and 67-test/78-subtest evidence remain historical.
 
-### Automated evidence
+Existing `.venv`: **300 tests + 78 subtests passed** (`/tmp/air11-python.log`).
+Coverage includes the existing historical real-pinch replay, closing/opening
+anchors, pinch/fist discrimination, slow-pinch suppression and timeout/rearm,
+voice/PTT, protocol and transport. New pure checks cover stable/spiky/ambiguous
+recognition evidence at 24/30/60/120 Hz, reversal, stale/nonfinite evidence and
+continuous stateless signed deadband. The first sandboxed run could not bind
+localhost; the final run with localhost permission passed.
 
-Existing `.venv`: **290 tests + 78 subtests passed** (`/tmp/air10-python.log`).
-No dependencies were installed. This includes existing hands, typed/voice/PTT,
-protocol, transport, precision, arbitration and replay regressions. It is separate
-from historical 67-test/78-subtest evidence and standalone voice verification.
-
-Blender **5.2.2 LTS** ran with factory startup and isolated user resources; native
-TCP scripts ran serially, without a competing companion. Successful checks:
+Blender **5.2.2 LTS**, isolated factory-startup profiles, sequential TCP scripts:
 
 | Script | PASS groups | Coverage |
 | --- | ---: | --- |
-| `smoke_check.py` | 6 | Installed runtime-only ZIP, primitives/registration |
-| `stabilization_check.py` | 4 | Preserved quaternion/TRS and mapping math |
-| `extrusion_geometry_check.py` | 27 | Existing outward geometry, attributes, constraints |
-| `signed_extrusion_check.py` | 10 | All cube/prism faces under three TRS cases; inward/outward/zero, limits, attributes, no temporary-mesh leak, deterministic preview/commit parity, tapered solid, repeated rings, native Manifold API evaluation |
-| `visibility_check.py` | 8 | Actual WINDOW perspective/orthographic projection, all cube/prism faces, signed choice, hidden/full/partial occlusion, rotated/extruded refresh, ambiguity and unobservable mappings |
-| `move_check.py` | 7 | Existing MOVE, release/cancel/Undo |
-| `transform_check.py` | 13 | Existing world transforms and native Undo |
-| `extrusion_check.py` | 13 | Legacy scalar extrusion/TCP and cleanup |
-| `bridge_check.py` | 16 | Transport, commands, context/disconnect/file cleanup |
-| `precision_check.py` | 6 | Typed numeric edits, staged controls, dedup and Undo |
-| `clutch_check.py` | 14 | Working tools preserved; visible six-side mapping; signed reversal; both releases; no-change Undo; repeated caps; inward cancel/loss/stale/view/mesh/attribute recovery; ambiguous direction; reconnect/shutdown |
+| `smoke_check.py` | 6 | Installed runtime-only ZIP and primitives |
+| `stabilization_check.py` | 4 | Preserved quaternion/TRS and mapping |
+| `extrusion_geometry_check.py` | 27 | Existing outward geometry/attributes/bounds |
+| `signed_extrusion_check.py` | 10 | Supported inward/outward/zero, transformed cube/prism, limits, parity, repeated rings, native Manifold evaluation |
+| `visibility_check.py` | 10 | Actual WINDOW projection/occlusion, transformed inverse-transpose normals, normalized projected ties, clear/degenerate directions and tentative outline authority |
+| `move_check.py` | 7 | MOVE, cancel/release/Undo |
+| `transform_check.py` | 13 | World transforms and native Undo |
+| `extrusion_check.py` | 13 | Legacy extrusion/TCP/cleanup |
+| `bridge_check.py` | 16 | Commands, context/file/disconnect cleanup |
+| `precision_check.py` | 6 | Numeric edits, staging/dedup/Undo |
+| `clutch_check.py` | 15 | Existing tools; six signed face directions; recognition/highlight no-jump; raw deadband/gain/hold; fixed face through reversal; both release orders and one native Undo; zero-noUndo; inward cancel/loss/stale/edit invalidation; tentative ambiguity; reconnect/shutdown |
 
-Logs: `/tmp/air10-final-<script-name>.log`. These are synthetic captures/geometry,
-not physical hands or a combined live demo. No recorded user failure was available.
+All 11 scripts exited successfully, **127 PASS groups**. Logs:
+`/tmp/air11-final-<script-name>.log`. These are synthetic inputs and geometry,
+not live hands. The new raw-input controller regression moves during the highlight,
+then holds still: no geometry is created. Afterward a raw 0.6-unit movement gives
+0.564, repeated holds do not accumulate, reversal stays on the same face, and
+cancel restores the exact baseline. The visibility regression rejects the false
+winner in the `(0.6,0,0.8)` versus `(1,0,0)` example above.
 
-Development failures were retained in the investigation: initialized missing BMesh
-lookup tables, fixed the new arrow's missing Vector import, restricted the new
-stale-baseline guard to the two-hand path to preserve legacy extrusion, and updated
-the precision test's old version assertion. A later release-equality assertion
-failed once around a 0.68-second frame gap; its original controller error was not
-captured, so attribution is not definitive. Diagnostic reruns passed. An explicit
-0.68-second gap test now verifies a stale-input error, exact baseline restoration
-and rejection of late completion. No safety timeout was relaxed. Physical timing
-and responsiveness still need the acceptance checks.
+Compile checks and `git diff --check` pass. ZIP verification confirms **16 runtime
+entries**, **0.11.0**, exact source bytes and unchanged packaged protocol/spatial
+helpers. ZIP SHA-256: `254ea875ecef8da43a593b8667ab750d17b0b4fc0dc657ff26d1422aeb5c2a51`.
 
-The final feedback-only adjustment labels the existing 4-unit mapping travel cap;
-it does not change geometry, sensitivity or arbitration. Compile checks and
-`git diff --check` pass. ZIP inspection confirms **15 runtime-only entries**,
-version **0.10.0**, exact source bytes and unchanged packaged protocol/spatial
-helpers. ZIP SHA-256:
-`19dae540a6d317f1f3efdc6bf8c6a15009f7cce31e74611b9f3d88bd7ffc3315`.
 
-`dist` packages remain generated/ignored, as before; rebuild with
-`.venv/bin/python tools/package_addon.py` on another checkout. The preserved 0.9
-ZIP checksum is `959a016645b2b9025a6557d8d46e4df35d073b7c6cb186ddc514036eae82d202`.
+The 0.10 engineering archive retains its development failures, including the
+unattributed release-equality failure near a 0.68-second frame gap. The explicit
+stale-completion regression is retained; no safety timeout has been relaxed.
+Current synthetic coverage cannot establish real camera timing or comfortable
+travel. Follow [physical acceptance](physical_acceptance.md) one action at a time:
+each accessible cube face, rotate/finish/reselect a newly exposed face, reversal,
+both release orders and individual Undo, then interruption and combined services.
+
+`dist` packages remain generated/ignored; rebuild with
+`.venv/bin/python tools/package_addon.py` on another checkout. Preserve the 0.10
+baseline ZIP and all `.blend`/backup files. No dependencies were installed.

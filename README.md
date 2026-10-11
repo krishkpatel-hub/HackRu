@@ -6,35 +6,106 @@ Handmade is a HackRU project that turns webcam hand tracking and spoken commands
 
 We wanted a way to start making shapes using the movements you already use to describe them. Blender handles the geometry and viewport; Handmade supplies the controls.
 
-> **Hackathon prototype:** the implementation currently lives on [`feature/blender`](https://github.com/krishkpatel-hub/HackRu/tree/feature/blender). The inspected add-on is **0.12.0** and still appears as **Air Modeler** in Blender. Gesture reliability is being refined; the latest combined physical acceptance checks remain unperformed.
+> **Hackathon prototype:** release **0.16.0** appears as **Air Modeler** in Blender. Automated release checks have passed; combined physical acceptance on this version remains **NOT RUN**.
 
 [![Watch the video](https://img.youtube.com/vi/iJkz58EZ7BM/hqdefault.jpg)](https://www.youtube.com/watch?v=iJkz58EZ7BM)
+
 ## What it can do
 
 - Create cubes, UV spheres, cylinders, and triangular prisms through sidebar buttons, typed commands, or voice.
+- Remove one selected, matching Air Modeler shape through a complete spoken or typed command.
 - Move, rotate, and uniformly scale objects with two-hand controls.
-- Extrude one eligible face at a time, with face highlighting and a live preview.
+- Extrude an eligible face using hover or explicit face browsing, a two-second dwell, and a live preview.
 - Undo completed edits individually or cancel an unfinished preview.
-- Use typed input when microphone recognition is unavailable.
-- Use push-to-talk for voice commands in noisy environments.
+- Listen automatically for supported CREATE/REMOVE speech, with optional push-to-talk and typed fallback.
 - Enter supported numeric commands for precise transforms.
 
-The current extrusion implementation uses drag-direction alignment and a right-cursor tie-breaker. The **right-cursor-only, two-second hover selection** and **point-and-dwell creation buttons** are in progress, not completed features of 0.12.0.
+## Current interaction: 0.16.0
 
-## Controls
+Left thumb/index pinch selects and holds the **object only**; Left movement is inert.
+Right open-palm translation controls MOVE, whole-hand closing/reopening controls
+SCALE, palm orientation controls free/three-axis ROTATE, and an isolated thumb/index
+pinch enters actual Blender Edit Mode for EXTRUDE targeting. Active tools stay locked until completion/cancel.
+Typed overrides, numeric commands, optional push-to-talk and typed fallback remain. Microphone speech is CREATE/REMOVE only.
 
-In two-hand mode, **left pinch selects and holds the object**. Moving the left hand does not transform it. The right hand supplies the modeling action.
+**Extrusion: Left holds the object → fresh Right pinch enters Edit Mode / Face Select
+→ choose a face → dwell two seconds → drag → release returns to Object Mode.**
+Right hover targets the nearest eligible visible face in the unobscured viewport;
+the sidebar no longer consumes part of the extrusion cursor's usable range. Other
+gesture cursor mappings are unchanged. Orbit/pan/zoom or use standard unmodified
+numpad views before lock to expose other sides; view changes reset dwell.
 
-| Action | Right-hand control while left pinch is held |
-| --- | --- |
-| Move | Translate an open palm |
-| Scale | Close the whole hand to shrink; reopen it to enlarge |
-| Rotate | Turn the palm; free rotation and explicit world-axis overrides are available |
-| Extrude, current 0.12.0 | Isolated thumb/index pinch, then deliberate drag to identify and manipulate a face |
+For hidden/opposite/bottom faces, use the compact **Previous Face / Next Face**
+buttons in the viewport (or **[ / ]**). The browser lists every currently eligible
+mesh face, including new caps and side faces, with **Face i of N** and its world
+normal. A dashed magenta outline explicitly identifies an occluded browsed face.
+Hover frames cannot replace this choice. Press **Enter** or **Confirm / dwell**:
+hold both pinches with valid tracking for a fresh two-second cyan dwell. Browsing
+alone never locks or deforms. **H / Hover targeting** returns to normal hover.
 
-Tools lock once an operation begins. For MOVE, SCALE, and ROTATE, left release commits the edit. In 0.12.0, either valid release order can complete an extrusion. Tracking loss freezes a preview; sustained loss cancels it. Release visibly before starting again after cancellation.
+Orange locks the selected face and a fresh zero-distance reference. AUTO now uses
+a signed distance along that face's normal, driven by the projected outward arrow.
+For a nearly head-on normal, the displayed stable fallback is **up = outward,
+down = inward**. The mapping freezes at lock; targeting travel adds no distance.
+Explicit planes/axes and numeric distances retain their semantics, with actionable
+feedback for incompatible constraints. The whole boundary distinguishes neighboring
+coplanar faces. Sidebar and overlay show the same extrusion stage.
 
-**Upcoming extrusion workflow:** hold the object with left pinch, hold right pinch, and hover the right cursor over one visible face for two continuous seconds. A progress indicator runs while geometry stays unchanged. The selected face turns orange; only subsequent right-hand movement extrudes it. Right release commits while left remains held, then left release resets. This replaces direction-based face selection when implemented.
+Either valid release commits once and returns to Object Mode with the target
+selected; the second release only rearms. Early/zero release adds no edit or Undo.
+Changing a hover candidate, leaving the mesh, invalid tracking, or capture/delivery
+gaps over 200 ms reset dwell. Border ambiguity never counts toward lock. Sustained
+0.5-second loss cancels; navigation after lock cancels safely. No timeout or global
+hand filter was relaxed. Each meaningful completion has one native Undo.
+
+Recognition retains the 0.12 arbitration thresholds and gesture assignments. One
+50 ms elapsed-time filter still smooths validated palm orientation and four-finger
+articulation, leaving MOVE/cursor filtering unchanged. Missing unused thumb joints
+no longer invalidate useful geometry; missing required joints still fail closed.
+Generated noisy-landmark comparisons and limits are in the handoff; no new physical
+tracking improvement has yet been verified.
+
+Signed geometry retains outward extrusion and bounded inward shortening of supported
+convex cube/prism faces. Inward is not a cavity or arbitrary concave-mesh operation.
+A default 2-unit cube permits 1.98 inward units. Cancel restores the baseline;
+each meaningful completion creates one native Undo step. Targeting, zero-distance
+release and temporary mode/selection changes create none. Cancel/loss restores the
+original mesh and returns to Object Mode when the original context remains valid.
+
+[0.16 face access, controls, installation and verified results](docs/face_access_handoff.md) ·
+[Existing controls and limits](docs/clutch_handoff.md) ·
+[protocol and REMOVE addition](docs/protocol.md) · [physical acceptance](docs/physical_acceptance.md) ·
+[combined demo sequence](docs/demo_handoff.md).
+
+**All 0.16 physical acceptance is NOT RUN.** Prior reports of SCALE→ROTATE confusion
+and unpredictable extrusion remain recorded. Automated checks and historical
+standalone voice success are separate evidence. Sponsor attribution is unconfirmed.
+
+## Automatic voice: CREATE/REMOVE only
+
+Normal `companion.main` launches now start the existing ElevenLabs microphone worker
+in hands-free mode. No `/talk` or `/end` is needed. Wait for Blender **Connected/READY**
+and **VOICE LISTENING — CREATE/REMOVE ONLY** before speaking; pause after each phrase.
+States are CONNECTING, LISTENING — CREATE/REMOVE ONLY, MUTED, or VOICE UNAVAILABLE.
+Missing credentials/device failure leaves hands, TCP and typed input running.
+
+Supported complete spoken phrases: `create cube/sphere/cylinder/prism/triangular prism`
+and `remove cube/sphere/cylinder/prism/triangular prism`. Capitalization, whitespace
+and harmless punctuation normalize. Conversation, partial transcripts, and spoken
+rotate/scale/move/extrude/undo/cancel are ignored. Typed commands retain their grammar.
+
+REMOVE requires exactly one active selected local object carrying Air Modeler's
+creation-shape metadata. Renaming does not change that identity. Pre-0.14/untagged
+objects, wrong shapes, ambiguous selection, linked/multi-scene objects and parents
+with children reject without deletion. Only the object is removed; shared mesh data
+is preserved. Global Undo must be enabled; one native Undo restores it. CREATE/REMOVE during a selected/active
+operation reject immediately, never wait until release. [Voice details and evidence](docs/voice_auto_handoff.md).
+
+Use `--no-mic` (alias `--typed`) to disable audio, or `--push-to-talk` for optional
+PTT. Existing `--mic` remains accepted. Synthetic/replay launches default to no mic.
+Every audio stream is bound to one Blender session: reconnect closes the old stream,
+discards delayed old transcripts and starts a new stream after READY. One microphone
+stream is open at a time. Keys remain private environment variables.
 
 ## Tech stack
 
@@ -50,135 +121,96 @@ Tools lock once an operation begins. For MOVE, SCALE, and ROTATE, left release c
 
 Camera and audio dependencies run in the external companion, outside Blender. Typed commands use the same deterministic command parser as voice.
 
-## Requirements
+## Reproducible companion setup
 
-- **Blender 5.2 or later**, as declared by the add-on; **5.2.2** is the tested version.
-- **Python 3.12** for the companion; the development environment used 3.12.15.
-- A webcam for gestures and an optional microphone for voice.
-- An ElevenLabs API key with realtime speech-to-text access for live voice. Typed input does not need a key.
+For a new checkout, clone the default branch:
 
-The reported development setup is macOS on Apple Silicon. The runner has macOS/Linux console paths, but Linux has not been physically validated. Windows console input is not implemented. Compatibility with other Blender versions remains unverified.
-
-## Quick start
-
-### 1. Get the implementation and prepare Python
-
-```bash
-git clone --branch feature/blender https://github.com/krishkpatel-hub/HackRu.git
+```sh
+git clone https://github.com/krishkpatel-hub/HackRu.git
 cd HackRu
+```
+
+The absolute paths below describe the verified demo laptop; use your checkout's path on another machine.
+
+Run in `/Users/krishpatel/HackRu`. Verified here: macOS arm64, CPython **3.12.15**, Blender **5.2.2 LTS** (its own Python 3.13.13). The runner console supports macOS/Linux; Windows console input is not implemented. Other Blender/platform versions remain unverified. Reuse the existing `.venv` after checking its interpreter; only run the creation command on a fresh setup, with Python 3.12 installed:
+
+```sh
+cd /Users/krishpatel/HackRu
 python3.12 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python --version
+.venv/bin/python -m pip install -r requirements.txt -r requirements-voice.txt
+.venv/bin/python -m pip install pytest==9.1.1
+.venv/bin/python -m pip check
 .venv/bin/python -m companion.hands.model
 ```
 
-For optional live voice:
+The existing locally provisioned uv environment lacks pip; reuse it without recreating it. Its dependency check is `UV_CACHE_DIR=/tmp/hackru-uv-cache /tmp/hackru-uv/bin/uv pip check --python .venv/bin/python`. The portable pip commands above apply to a fresh standard-library venv.
 
-```bash
-.venv/bin/python -m pip install -r requirements-voice.txt
-```
+Verified installed pins: MediaPipe 1.1.0, opencv-contrib-python 4.11.0.86, NumPy 1.26.4, ElevenLabs 2.71.0, sounddevice 0.5.6, httpx 0.28.1, websockets 17.2; pytest 9.1.1 for checks. Do not install a second OpenCV distribution alongside opencv-contrib-python. Install these outside Blender. Typed-only operation needs no third-party dependencies.
 
-Reuse an existing working environment rather than recreating it. Install dependencies into the companion environment, not Blender. The project uses `opencv-contrib-python`; do not install a second OpenCV distribution alongside it.
+Model path: `/Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task`. Tested SHA-256: `fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1`. The downloader warns on mismatch because its upstream URL uses `latest`; investigate a changed checksum before the demo. The launch commands below pass the path explicitly, overriding `HAND_LANDMARKER_MODEL`.
 
-### 2. Build and install the Blender add-on
+Discover devices on the actual demo laptop:
 
-```bash
-.venv/bin/python tools/package_addon.py
-```
-
-This creates `dist/air_modeler.zip`.
-
-1. In Blender, open **Edit → Preferences → Add-ons → Install from Disk** and choose the ZIP.
-2. Enable **Air Modeler**.
-3. Use **Object Mode**, **Solid** viewport shading, and **X-Ray off**. Enable Global Undo.
-4. In the 3D Viewport, press **N** and open the **Air Modeler** tab.
-
-When updating an older installation, disconnect, disable/remove it, and fully restart Blender before installing the rebuilt ZIP. Use matching companion and add-on revisions.
-
-### 3. Find your devices
-
-```bash
+```sh
 .venv/bin/python -m companion.hands --list-cameras
-```
-
-If using voice:
-
-```bash
 .venv/bin/python -m companion.voice --list-devices
+read 'CAMERA_INDEX?Camera index from the working local camera probe: '
+read 'MIC_INDEX?Input microphone index from the local device list: '
 ```
 
-Grant Camera and Microphone access to the Terminal or IDE launching the companion. Restart that application if needed. Device indices vary across machines and attached devices.
+These prompts use macOS zsh. Camera discovery probes indices 0–4. Grant Camera/Microphone access to the launching Terminal/IDE under System Settings → Privacy & Security, then restart that application if needed. Close competing capture applications. Select a working camera and an **input** microphone; indices change with attached phones/headsets. H's camera index 2 is not a portable default. The integrated hands worker always sets `preview=False`, avoiding macOS OpenCV GUI calls on a worker thread.
 
-### 4. Start hands and typed commands
+For live voice only, privately enter the **ElevenLabs API key** in the companion terminal. Do not paste it into a command, chat, file, Blender console or diagnostic output:
 
-Set the camera index to the working index from discovery; `0` below is an example.
-
-```bash
-CAMERA_INDEX=0
-.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model companion/hands/models/hand_landmarker.task --two-hands
-```
-
-In Blender, click **Air Modeler → Connect**. Wait for **Connected / READY** before issuing commands.
-
-Try typing in the companion terminal:
-
-```text
-create cube
-create sphere
-create cylinder
-create triangular prism
-rotate x
-scale
-extrude
-move
-cancel
-undo
-status
-help
-```
-
-Bare tool commands choose a gesture tool; they do not transform geometry by themselves. Supported numeric examples include `rotate x 45 degrees`, `scale by 1.5`, `move x 2 units`, and `extrude 0.5 units`. Inspect Blender's status and use `help` for available controls.
-
-### 5. Optional voice with push-to-talk
-
-In the companion terminal, load your key privately. The following hidden-input commands work in macOS zsh and Bash:
-
-```bash
+```sh
 set +x
-printf 'ElevenLabs API key: '
-read -rs ELEVENLABS_API_KEY
+read -rs 'ELEVENLABS_API_KEY?ElevenLabs API key (hidden): '
 export ELEVENLABS_API_KEY
 printf '\n'
 ```
 
-Keep the key out of source code, screenshots, chat, and diagnostic output. Launch Blender separately from this key-bearing terminal.
+The value is hidden and absent from shell history. Launch Blender separately from the key-bearing shell; after the companion exits, `unset ELEVENLABS_API_KEY`. Keep terminal recording/debug tracing off. Realtime account access and microphone permission still need validation on the demo laptop.
 
-Stop any existing companion before starting the voice-enabled version. Set the microphone index from device discovery; `0` is an example.
+## Package, install and launch
 
-```bash
-MIC_INDEX=0
-.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model companion/hands/models/hand_landmarker.task --two-hands --mic --device "$MIC_INDEX" --push-to-talk
+```sh
+.venv/bin/python tools/package_addon.py
 ```
 
-Connect Blender again. Wait for **READY**, **Scribe session ready**, and **PTT MUTED**.
+ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.16.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.16.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
 
-1. Enter `/talk` to arm voice input.
-2. Speak one supported command, such as “create cube.”
-3. Enter `/end` to mute and request completion of that utterance.
-4. Wait for the committed transcript and Blender's result before the next command.
+This laptop's confirmed camera is **0**, microphone **0 (MacBook Air Microphone)**. The exact launch command with those indices is in the [current handoff](docs/face_access_handoff.md#installation-and-launch). The variables below are for rediscovery if devices change. Choose **one** command:
 
-Typed commands remain available. `/end` does not cancel an already spoken command. PTT gates recognition audio; the microphone remains open until shutdown. Speech already captured can finish processing after muting.
+```sh
+# Hands plus typed commands, microphone disabled (no API key needed)
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --no-mic
 
-For hands-free voice, omit `--push-to-talk`.
+# Hands plus automatic CREATE/REMOVE voice (normal default), typed fallback
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --device "$MIC_INDEX"
 
-### 6. Shut down
-
-Enter `quit` or press **Ctrl-C** in the companion terminal. Unfinished previews should restore and device workers should close. After using voice:
-
-```bash
-unset ELEVENLABS_API_KEY
+# Hands plus push-to-talk live voice, with typed fallback
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --mic --device "$MIC_INDEX" --push-to-talk
 ```
 
-For a camera-free starting point, run `.venv/bin/python -m companion.main`, connect Blender, and use typed commands or sidebar controls. An explicit single-hand fallback is available with `--legacy-hands` instead of `--two-hands`.
+In a 3D viewport, open the N sidebar → Air Modeler → Connect. Wait for companion `READY` before commands. `Hands config:` confirms camera/model and preview False. For voice, wait for `VOICE LISTENING — CREATE/REMOVE ONLY` after the Scribe session and microphone are active; a Scribe-ready message alone precedes microphone opening. `status` shows Blender state/errors; `help` lists commands. `QUEUED` means queued, not successful scene execution: inspect Blender/status. `quit`, `/quit`, EOF or Ctrl+C stops workers and bridge.
+
+Optional PTT starts **PTT MUTED**; normal hands-free listening requires no gate controls. Enter `/talk` → **PTT ARMED**, speak one complete command, then `/end` → **PTT MUTED**. Wait for `Committed with timestamps:` and the visible result before the next turn. Repeated controls are harmless; state changes print once, and `status` prints the current gate. Without `--push-to-talk`, controls explain that PTT is unavailable. Hands-free mode uses speech silence detection instead.
+
+PTT gates audio at capture callbacks (100 ms blocks), replacing muted audio with zero PCM; the microphone stays open and silence is transmitted. The first queued inactive block after active audio triggers one manual commit. Buffered active audio can finish after `/end`, and the intended delayed timestamped transcript can execute while muted. Partial/plain transcripts never execute; timestamped duplicates are suppressed by the voice service. `/end` is not cancellation of already spoken commands. Do not toggle faster than one audio block or start another turn until committed feedback; shutdown stops recognition rather than draining unfinished speech. `PTT ARMED` describes the gate, not microphone health. Restart the companion after a voice startup failure; typed input and hands remain usable.
+
+Common remedies:
+
+- `Cannot listen ... 8765`: close the prior companion; only one server/client is supported.
+- `DISCARDED`/not READY: connect Blender and deliberately reissue the command once ready; offline input is discarded, never replayed.
+- Missing model: run the downloader and verify the explicit path/checksum.
+- Camera unavailable/unauthorized: grant permission and repeat discovery; don't guess another laptop's index.
+- `ELEVENLABS_API_KEY is missing`, auth/quota/terms errors: enter the key privately or fix account access, then restart. Typed commands still work.
+- Microphone unavailable: check permission and input device; integrated voice uses 16 kHz. The standalone voice diagnostic accepts `--sample-rate 48000`, but that flag is not exposed by this runner. If only 48 kHz works, use typed fallback and report the device incompatibility to V/P.
+- `NEEDS_RELEASE`: open the hand visibly before pinching again. Hover countdown: hold the Right cursor inside one eligible cyan face for 2 seconds. A mapping rejection needs a compatible plane/axis; cancel, change mapping and retry.
+
+Explicit legacy fallback: replace `--two-hands` with `--legacy-hands` in the launch command. Keep one hand in view: pinch MOVE directly; bare `rotate x/y/z` uses horizontal cursor movement, `scale` uses vertical movement, and `extrude` uses upward outward-normal distance. Camera runs require either `--two-hands` or `--legacy-hands`; omission errors rather than silently selecting legacy behavior. `--manipulator-hand Right` is retained for compatibility; Left is rejected in two-hand mode. Typed-only fallback is `/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --no-mic` from the project folder.
+
 
 ## How it works
 
@@ -198,21 +230,137 @@ The Blender add-on owns selection, gesture interpretation, previews, and mesh ed
 | `tests/` | Python regression checks |
 | `docs/` | Setup details, engineering handoffs, and acceptance records |
 
-## Current limits
+## Current limits and verification
 
-- Automatic gesture recognition is still being tuned. Users have reported SCALE/ROTATE confusion and unintended extrusion face choices; 0.12.0 includes fixes that still need combined live acceptance.
-- Extrusion supports a restricted set of eligible faces and meshes, starting with convex cube/prism geometry. Inward editing performs bounded shortening, not arbitrary cavity creation or through-cuts.
-- The integrated tracker runs without a separate camera preview window.
-- The bridge supports one Blender client and requires explicit reconnect.
-- Queued commands are not proof of scene execution; check the viewport or `status`.
-- This prototype does not reconstruct arbitrary air-drawn meshes or provide a physics engine.
+Gesture reliability still requires combined live acceptance. Earlier reports of SCALE/ROTATE confusion and unpredictable extrusion remain recorded; the automated fixes do not establish a successful physical session. Extrusion remains restricted to eligible geometry, and inward editing shortens supported forms rather than creating arbitrary cavities or through-cuts. The integrated tracker has no separate camera preview window. The bridge supports one Blender client with explicit reconnect. This prototype does not reconstruct arbitrary air-drawn meshes or provide a physics engine.
 
-## Verification and further development
+The [0.16.0 engineering handoff](docs/face_access_handoff.md) records **425 Python tests plus 78 subtests** and **12 native Blender regression scripts** passing. These automated results are separate from live camera and microphone acceptance, which remains **NOT RUN** for this release. Use the [physical acceptance checklist](docs/physical_acceptance.md) for live verification and the [protocol documentation](docs/protocol.md) for integration details.
 
-The [0.12.0 engineering handoff](docs/clutch_handoff.md) reports **310 Python tests plus 78 subtests** and **12 Blender regression scripts** passing. These automated results do not establish a successful combined live-hand/voice session on this version.
+## Architecture agreement (preserved)
 
-Use the [physical acceptance checklist](docs/physical_acceptance.md) for live verification and the [protocol documentation](docs/protocol.md) for integration details.
+The following ownership boundaries and contracts remain the team agreement. Future-tense language in this historical agreement records the original design; the implemented status and launch instructions above supersede its milestone planning.
 
-Next priorities are exact right-pointer face selection with the two-second dwell, point-and-dwell creation controls, more reliable gesture separation, and user calibration.
+## Ownership and collaboration
+
+| Owner | Planned owned paths |
+| --- | --- |
+| P (Pro / integration) | `addon/air_modeler/`, `companion/main.py`, `companion/transport/`, `shared/*`, `docs/protocol.md`, `tools/package_addon.py`; root configuration, dependency files, README, integration checks |
+| H (hands) | `companion/hands/*`, `tests/test_hands_*`, `docs/hands_handoff.md` |
+| V (voice) | `companion/voice/*`, `tests/test_voice_*`, `docs/voice_handoff.md` |
+
+These are ownership boundaries, not scaffolding to create now. Once this agreement is committed to `main`, H and V may branch and create their implementation files without waiting for empty modules or a complete skeleton. Each service must run independently with a callback that prints JSON. Only P integrates into `main`; coordinate before changing another owner's files or any shared interface.
+
+## Planned stack
+
+| Area | Technology |
+| --- | --- |
+| Blender | `bpy`, `bmesh`, `mathutils` |
+| Hands | OpenCV, MediaPipe Tasks Hand Landmarker |
+| Voice | `sounddevice`, ElevenLabs Scribe v2 Realtime; deterministic parsing, no LLM parser required |
+| Transport | Local TCP at `127.0.0.1:8765`; companion server, Blender client; UTF-8 newline-delimited JSON |
+
+Camera/audio dependencies will run only in the companion environment. SDK compatibility and sponsored realtime speech-to-text access must be verified during implementation. API keys will stay in environment variables and outside Blender.
+
+## Shared module interfaces
+
+Exact planned signatures:
+
+```python
+# companion/hands/tracker.py
+run_hand_tracker(emit, stop_event, config) -> None
+
+# companion/voice/service.py
+run_voice(emit, stop_event, config) -> None
+
+# companion/voice/parser.py
+parse_command(text) -> dict | None
+```
+
+Hands and voice will call `emit(event)` with a dictionary containing only `type` and `payload`. P will supply the thread-safe, nonblocking callback, orchestration, transport, and wire envelope. Both services must exit when `stop_event` is set. H and V must not create sockets or manage Blender interaction modes. P will handle platform-specific device and preview event-loop requirements during integration.
+
+## Hand events
+
+| Type | Payload fields |
+| --- | --- |
+| `hand_frame` | `u`, `v`, `present`, `pinching` |
+| `gesture_start` | `gesture_id`, `u`, `v` |
+| `gesture_end` | Same `gesture_id`, final `u`, `v` |
+| `gesture_cancel` | `gesture_id`, `reason` |
+
+Example callback event:
+
+```json
+{"type":"gesture_start","payload":{"gesture_id":"<uuid>","u":0.4,"v":0.6}}
+```
+
+H will track one hand and mirror the camera image once before inference and preview. Coordinates are normalized: `u` increases left to right and `v` top to bottom. Visible coordinates must be finite and within `[0, 1]`; only absent `hand_frame` observations may use `null` coordinates. Gesture start/end coordinates must be valid.
+
+H will generate gesture UUIDs, apply cursor smoothing once, and use pinch hysteresis. One pinch must produce one start and one end or cancellation. Tracking loss will freeze the preview immediately; sustained loss of approximately 0.5 seconds will cancel it. After cancellation, a visible released hand is required before accepting another gesture.
+
+## Voice commands
+
+| Action | Payload parameters |
+| --- | --- |
+| `spawn` | `shape`: `cube`, `sphere` (UV sphere), `cylinder`, or `prism` (triangular prism) |
+| `set_mode` | `mode`: `MOVE`, `ROTATE`, `SCALE`, or `EXTRUDE`; `ROTATE` accepts `axis`: `X`, `Y`, or `Z`, default `Z` |
+| `cancel` | None |
+| `undo` | None |
+
+`parse_command` will return an action payload without an ID, or `None` for unrelated speech. For example:
+
+```json
+{"action":"set_mode","mode":"ROTATE","axis":"Z"}
+```
+
+The voice service will add a UUID under `id` and emit type `command`:
+
+```json
+{"type":"command","payload":{"id":"<uuid>","action":"spawn","shape":"cube"}}
+```
+
+Only committed transcripts will execute. Repeated provider events must be deduplicated while allowing later intentional repetition. Typed input will use the same parser and remain available when voice fails.
+
+## Wire contract — planned version 1
+
+Each message will be one UTF-8 JSON object followed by a newline:
+
+```json
+{"v":1,"type":"command","session_id":"<session>","seq":1,"payload":{"id":"<uuid>","action":"spawn","shape":"cube"}}
+```
+
+P's transport layer will add `v`, `session_id`, and `seq`; H and V will not. Blender will send `hello` first with `session_id: null`. The companion will assign a fresh session ID in its reply; subsequent messages will use that session. Sequence numbers will increase independently in each direction.
+
+Blender will send `status` containing `mode`, `phase`, `selected_object`, `hovered_object`, `tracking`, and `last_error`.
+
+Command IDs must be deduplicated per session. Disconnect will discard stale input; reconnect must neither replay commands nor revive gestures. Only consecutive `hand_frame` observations may be coalesced, preserving command and gesture boundaries.
+
+## Blender interaction rules
+
+- Blender alone will own scene edits, modes, and interaction state. Scene edits must run on Blender's main thread.
+- Modes: `MOVE`, `ROTATE`, `SCALE`, `EXTRUDE`. Phases: `IDLE`, `DRAGGING`, `NEEDS_RELEASE`. `MOVE` is the default; successful manipulations will return to `MOVE`.
+- Only `gesture_start` over a valid target may start hand manipulation. Hovering and `hand_frame` alone must never start an edit. A missed pinch must not begin editing later while still held; require release before another attempt.
+- Voice spawning and undo will be explicit actions independent of pinching. Spawn and mode changes must be rejected during an active drag.
+- Lock one target per gesture and calculate every preview from its initial state. Initially support unparented mesh primitives without topology-changing modifiers.
+- Create extrusion topology once per gesture; subsequent updates will move the new cap vertices.
+- Release will commit one completed edit as one undo action; preview frames must create none.
+- Cancel, disconnect, or sustained tracking loss will restore the pre-gesture state. Cancellation will require release before another gesture. Undo during dragging will cancel the preview before undoing the previous completed action.
+
+## First milestones
+
+After the agreement is committed, work in parallel:
+
+| Owner | First deliverable |
+| --- | --- |
+| P | Sidebar buttons that create all four shapes; shared validator and bridge |
+| H | Webcam preview, cursor, pinch/release events, replay fixtures |
+| V | Typed parser, microphone recognition, command fixtures |
+
+Prove synthetic spawning through the real bridge early. Then integrate the live cursor and voice spawning, followed by movement, rotation/scaling, extrusion, and recovery checks.
+
+## Git workflow and handoffs
+
+Use `feature/blender`, `feature/hands`, and `feature/voice`. Each teammate will work in a separate local clone or worktree, commit and push owned changes, and open pull requests into `main`. P will merge one at a time with relevant checks between merges.
+
+Every handoff must include the commit SHA, changed files, exact run command, checks actually performed, and known failures. Until verified, run commands and runtime/dependency versions must be labeled **to be verified**.
 
 Built by a four-person team at HackRU.

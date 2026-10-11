@@ -82,6 +82,8 @@ def create_primitive(context: bpy.types.Context, shape: str) -> bpy.types.Object
         bm.to_mesh(mesh)
         mesh.update()
         obj = bpy.data.objects.new(f"Air {_NAMES[shape]}", mesh)
+        obj['air_modeler_shape'] = shape
+        obj['air_modeler_shape_version'] = 1
         obj.location = context.scene.cursor.location.copy()
         view_layer.active_layer_collection.collection.objects.link(obj)
         view_layer.update()
@@ -101,3 +103,31 @@ def create_primitive(context: bpy.types.Context, shape: str) -> bpy.types.Object
         raise
     finally:
         bm.free()
+
+
+def removal_target(context, shape):
+    """Select exactly one local tagged object. Names are never shape evidence.
+
+    Metadata records creation provenance and survives transform/mesh edits.
+    Older untagged objects require manual deletion; we do not guess their shape.
+    """
+    validate_context(context)
+    if shape not in _NAMES:
+        raise ValueError("Unknown removal shape")
+    if not context.preferences.edit.use_global_undo:
+        raise RuntimeError("Enable Global Undo before removing an Air Modeler object")
+    selected = [obj for obj in context.view_layer.objects if obj.select_get(view_layer=context.view_layer)]
+    obj = context.view_layer.objects.active
+    if (len(selected) != 1 or obj is None or selected[0] != obj
+            or obj.type != 'MESH' or not obj.is_editable or obj.library or obj.override_library
+            or obj.hide_get() or obj.hide_select or not obj.visible_get(view_layer=context.view_layer)
+            or obj.get('air_modeler_shape_version') != 1 or obj.get('air_modeler_shape') != shape
+            or len(obj.users_scene) != 1 or obj.children):
+        raise RuntimeError(f"Select the {shape} you want to remove: one local Air Modeler object only")
+    return obj
+
+
+def remove_primitive(context, shape):
+    """Remove the object only; never delete or mutate its potentially shared mesh."""
+    obj = removal_target(context, shape)
+    bpy.data.objects.remove(obj, do_unlink=True)

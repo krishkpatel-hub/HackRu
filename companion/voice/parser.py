@@ -47,12 +47,12 @@ def parse_command(text: str) -> dict | None:
             return None
         return payload
     words = normalize_text(text).split()
-    if len(words) >= 2 and words[0] in {"create", "add"}:
+    if len(words) >= 2 and words[0] in {"create", "add", "remove"}:
         shape = " ".join(words[1:])
         if shape == "triangular prism":
             shape = "prism"
         if shape in {"cube", "sphere", "cylinder", "prism"}:
-            return {"action": "spawn", "shape": shape}
+            return {"action": "remove" if words[0] == "remove" else "spawn", "shape": shape}
     if words == ["rotate"]:
         return {"action": "set_mode", "mode": "ROTATE", "axis": "FREE"}
     if len(words) == 2 and words[0] == "rotate" and words[1] in {"x", "y", "z"}:
@@ -65,3 +65,12 @@ def parse_command(text: str) -> dict | None:
         if words[0] in {"cancel", "undo"}:
             return {"action": words[0]}
     return None
+
+
+def parse_microphone_command(text: str) -> dict | None:
+    """Explicit spoken allowlist; the reusable typed grammar stays broader."""
+    normalized = normalize_text(text)
+    if not re.fullmatch(r"(?:create|remove) (?:cube|sphere|cylinder|prism|triangular prism)", normalized):
+        return None
+    payload = parse_command(text)
+    return payload if payload and payload['action'] in {'spawn', 'remove'} else None

@@ -1,21 +1,26 @@
-# Air Modeler 0.13.0 physical acceptance
+> Focused voice acceptance is **NOT RUN**: after 0.14 installation and LISTENING
+> status, say “create cube”, wait for the selected cube; say “remove cube”, wait for
+> its removal; use Blender Undo to restore it. Perform one action per reply.
+> See [setup and evidence](voice_auto_handoff.md). Spoken Undo/transforms are ignored.
 
-**All checks NOT RUN on 0.13.0.** Prior real reports: Right closing/opening sometimes
+# Air Modeler 0.14.0 physical acceptance
+
+**All checks NOT RUN on 0.14.0.** Prior real reports: Right closing/opening sometimes
 activates ROTATE, and extrusion face choice/dragging is unpredictable. Those reports
 remain failures to address physically; generated tests do not turn them into passes.
-Installed add-on **on disk** was 0.12.0 at this inspection; loaded modules were not
+Installed add-on **on disk** was 0.12.0 at the prior 0.13 inspection; loaded modules were not
 introspected. Previous records: [0.12](physical_acceptance_0.12.md),
 [0.11](physical_acceptance_0.11.md), [0.10](physical_acceptance_0.10.md).
 
 Proceed **one small action per reply**, recording actual observations before advancing.
-First save a new `/Users/krishpatel/HackRu/rehearsal_0_13.blend` copy; preserve every
+First save a new `/Users/krishpatel/HackRu/rehearsal_0_14.blend` copy; preserve every
 older scene. Then follow [install/restart/launch](clutch_handoff.md#install-and-launch).
-The old companion was stopped cleanly for tests; the user's Blender session remains
-open. Do not paste keys or key-bearing terminal output into this record or chat.
+Current automated tests run in separate factory-startup Blender processes. Do not
+paste keys or key-bearing terminal output into this record or chat.
 
 | Step | Status | Starting pose and exact action | Expected result / observation needed |
 | --- | --- | --- | --- |
-| 1a | NOT RUN | Hands relaxed; install/restart the rebuilt ZIP and launch the companion. | Installed and companion **0.13.0**, Blender version and git revision; Connected/READY and Scribe-ready separately. Report exact non-secret errors. |
+| 1a | NOT RUN | Hands relaxed; install/restart the rebuilt ZIP and launch the companion. | Installed and companion **0.14.0**, Blender version and git revision; Connected/READY and VOICE LISTENING — CREATE/REMOVE ONLY separately. Report exact non-secret errors. |
 | 1b | NOT RUN | Show open Left alone, then Right alone, then both separated and still. | Correct anatomical labels and actual fresh hand observations; no role swaps. |
 | 2 | NOT RUN | Right open and still; aim Left cursor at a cube, pinch Left and hold. | SELECTED_READY, unchanged cube. Small Left movement remains inert. |
 | 3 | NOT RUN | Keep Left held; pinch only Right thumb/index, other fingers extended. Move Right cursor inside a visible face. | TARGETING then cyan actual polygon and “Hold on this face: … / 2.0 s”; no geometry. |
@@ -30,12 +35,12 @@ open. Do not paste keys or key-bearing terminal output into this record or chat.
 | 8a | NOT RUN | Fresh Left selection, Right open with fingers together; translate palm, then release Left. | MOVE with unchanged mapping/sensitivity and no SCALE/ROTATE. |
 | 8b | NOT RUN | Fresh Left selection, Right closes to a fist, holds and reopens, allowing small natural wobble. | SCALE only; positive proportional shrink/enlarge, stable hold, original origin/rotation/signs; no EXTRUDE. |
 | 8c | NOT RUN | Fresh Left selection, steady finger shape; twist/tilt/turn Right palm sideways through three axes. | ROTATE only; no SCALE, flips or false activation. Finger flexion alone must not create rotation. |
-| 9 | NOT RUN | Rehearse [spawning → MOVE → ROTATE → SCALE → hover/dwell EXTRUDE → individual Undo](demo_handoff.md), with PTT and typed fallback. | Every actual scene result once; record failures separately from voice-ready/hand-ready states. |
-| 10 | NOT RUN | `/end`, wait last commit, `quit`/Ctrl+C; then unset private key. | Camera off, prompt returned, workers/bridge stopped, preview restored, no shutdown warning. |
+| 9 | NOT RUN | Rehearse [spawning → MOVE → ROTATE → SCALE → hover/dwell EXTRUDE → individual Undo](demo_handoff.md), with automatic CREATE/REMOVE speech and typed fallback. | Every actual scene result once; record failures separately from voice-ready/hand-ready states. |
+| 10 | NOT RUN | Wait last commit, `quit`/Ctrl+C; then unset private key. Optional PTT: `/end` first. | Camera off, prompt returned, workers/bridge stopped, preview restored, no shutdown warning. |
 
 For every action record version/revision, PASS/FAIL/NOT RUN, pose, actual behavior
 and recovery. Test supported rotated/nonuniform cubes and prism faces after the
-basic sequence. Numeric `extrude 0.5 units` must wait for the same dwell; its amount
+basic sequence. Typed numeric `extrude 0.5 units` must wait for the same dwell; its amount
 appears on the next valid observation after lock without a drag. Unsupported or
 mapping-incompatible faces must give readable feedback and no edit.
 

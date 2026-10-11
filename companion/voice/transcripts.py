@@ -8,7 +8,7 @@ Source: https://elevenlabs.io/docs/eleven-api/guides/how-to/speech-to-text/realt
 
 import math
 
-from .parser import normalize_text
+from .parser import normalize_text, parse_microphone_command
 from .service import emit_command
 
 MAX_RECENT_TRANSCRIPTS = 1024
@@ -66,5 +66,9 @@ class TranscriptHandler:
             oldest = min(self.seen, key=self.seen.get)
             self.discard_through = max(self.discard_through, self.seen.pop(oldest))
         self.feedback(f"Committed with timestamps: {text}")
-        if not emit_command(text, self.emit, self.stop_event):
-            self.feedback("Ignored: speech did not match one supported command phrase.")
+        if parse_microphone_command(text) is None:
+            self.feedback("Ignored speech: CREATE/REMOVE ONLY; say one complete command.")
+        elif emit_command(text, self.emit, self.stop_event, parser=parse_microphone_command):
+            self.feedback("Accepted speech command; check Blender status for completion.")
+        else:
+            self.feedback("Speech command discarded; check Blender connection/selection and release any active gesture.")

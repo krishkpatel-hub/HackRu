@@ -3,7 +3,7 @@
 bl_info = {
     "name": "Air Modeler",
     "author": "HackRU Team",
-    "version": (0, 13, 0),
+    "version": (0, 14, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > Air Modeler",
     "description": "Hand cursor, picking, undoable transforms, single-face extrusion and primitive creation",
@@ -12,13 +12,13 @@ bl_info = {
 
 import bpy
 
-from .operators import AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_transform, AIRMODELER_OT_commit_extrusion
+from .operators import AIRMODELER_OT_remove_primitive, AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_transform, AIRMODELER_OT_commit_extrusion
 from .operators import AIRMODELER_PG_precision, AIRMODELER_OT_precision_apply, AIRMODELER_OT_precision_reset
 from .operators import AIRMODELER_OT_arm_gesture, AIRMODELER_OT_cancel, AIRMODELER_OT_undo
 from .panel import AIRMODELER_PT_primitives
 from . import bridge
 
-_CLASSES = (AIRMODELER_PG_precision, AIRMODELER_OT_arm_gesture, AIRMODELER_OT_cancel, AIRMODELER_OT_undo, AIRMODELER_OT_precision_apply, AIRMODELER_OT_precision_reset, AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_transform, AIRMODELER_OT_commit_extrusion, bridge.AIRMODELER_OT_connect,
+_CLASSES = (AIRMODELER_PG_precision, AIRMODELER_OT_arm_gesture, AIRMODELER_OT_cancel, AIRMODELER_OT_undo, AIRMODELER_OT_precision_apply, AIRMODELER_OT_precision_reset, AIRMODELER_OT_remove_primitive, AIRMODELER_OT_create_primitive, AIRMODELER_OT_commit_transform, AIRMODELER_OT_commit_extrusion, bridge.AIRMODELER_OT_connect,
             bridge.AIRMODELER_OT_disconnect, AIRMODELER_PT_primitives)
 
 

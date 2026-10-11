@@ -48,7 +48,7 @@ class Check(helpers.Check):
         return center,normal
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,13,0)
+        assert self.module.bl_info['version']==(0,14,0)
         self.line('create cube'); yield .3
         self.name=self.window.view_layer.objects.active.name
         self.obj().rotation_euler=(.3,-.2,.4); self.obj().scale=(1.2,.7,1.5)
@@ -125,7 +125,7 @@ class Check(helpers.Check):
         for pose,mode in [('TWO','ROTATE'),('THREE','SCALE'),('OPEN','EXTRUDE'),('FIST','MOVE')]:
             yield from self.confirm(pose)
             assert self.runtime().mode==mode, (pose,self.runtime().mode_label())
-        # Confirm SCALE, then voice overrides one operation with world X rotation.
+        # Confirm SCALE, then a typed command overrides one operation with world X rotation.
         yield from self.confirm('THREE')
         self.line('rotate x'); self.frame((.5,.5)); yield .15
         assert self.runtime().override and self.runtime().axis=='X'
@@ -153,7 +153,7 @@ class Check(helpers.Check):
         assert self.runtime().phase=='NEEDS_RELEASE', 'idle cancel must preserve an existing loss gate'
         self.frame((.5,.5),True); yield .1; assert self.runtime().phase=='NEEDS_RELEASE'
         self.frame((.5,.5)); yield .1; assert self.runtime().phase=='IDLE'
-        print('PASS selector debounce, voice precedence, drag locking, loss and release gate',flush=True)
+        print('PASS selector debounce, command precedence, drag locking, loss and release gate',flush=True)
         # Numeric extrusion must not choose a hover until pinch; lock amount.
         index=next(p.index for p in self.obj().data.polygons if p.normal.z>.9)
         center,normal=self.aim(index); yield .15

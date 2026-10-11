@@ -111,7 +111,7 @@ def test_new_payload_validation_is_strict_and_legacy_unchanged():
     assert parse_command('extend')==dict(action='set_mode',mode='EXTRUDE')
 
 
-def test_numeric_transcripts_only_committed_once_and_intentional_repeat():
+def test_numeric_speech_is_ignored_but_typed_precision_and_repetition_remain():
     import threading
     from companion.voice.transcripts import TranscriptHandler
     events=[]
@@ -123,11 +123,13 @@ def test_numeric_transcripts_only_committed_once_and_intentional_repeat():
     assert not events
     timestamped=dict(event,message_type='committed_transcript_with_timestamps')
     h.handle(timestamped); h.handle(timestamped)
-    assert len(events)==1
     h.handle(dict(timestamped,words=[dict(start=3,end=4)]))
-    assert len(events)==2 and events[0]['payload']['id']!=events[1]['payload']['id']
     stop.set(); h.handle(dict(timestamped,words=[dict(start=5,end=6)]))
-    assert len(events)==2
+    assert not events
+    from companion.main import typed_event
+    first,second=typed_event('Scale by 1.5.'),typed_event('Scale by 1.5.')
+    assert first['payload']['mode']=='SCALE' and first['payload']['value']==1.5
+    assert first['payload']['id']!=second['payload']['id']
 
 
 def test_idle_identity_can_reacquire_after_crossing_timeout():

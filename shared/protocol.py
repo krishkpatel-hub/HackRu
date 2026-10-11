@@ -175,9 +175,9 @@ def validate_event(event):
     elif kind == "command":
         action = payload.get("action")
         require(isinstance(action, str), "Command action must be text")
-        if action == "spawn":
+        if action in ("spawn", "remove"):
             keys(payload, ("id", "action", "shape"))
-            require(payload["shape"] in SHAPES, "Invalid spawn shape")
+            require(payload["shape"] in SHAPES, "Invalid primitive shape")
         elif action == "precision":
             validate_precision(payload)
         elif action == "set_mode":
@@ -214,7 +214,9 @@ def validate_event(event):
         uuid(payload["gesture_id"])
         text(payload["reason"])
     elif kind == "status":
-        keys(payload, ("mode", "phase", "selected_object", "hovered_object", "tracking", "last_error"))
+        keys(payload, ("mode", "phase", "selected_object", "hovered_object", "tracking", "last_error"), ("message",))
+        if "message" in payload:
+            text(payload["message"])
         require(payload["mode"] in MODES, "Invalid status mode")
         require(payload["phase"] in ("IDLE", "SELECTED_READY", "DRAGGING", "NEEDS_RELEASE"), "Invalid phase")
         for field in ("selected_object", "hovered_object", "last_error"):

@@ -175,6 +175,7 @@ async def _stream(emit, stop, config, api_key, dependencies):
                     device=config.device, channels=1, dtype="int16", callback=capture)
                 with stream:
                     was_active = False
+                    shown_state = None
                     while not stop.is_set():
                         if failures:
                             raise failures[0]
@@ -182,6 +183,10 @@ async def _stream(emit, stop, config, api_key, dependencies):
                             raise VoiceError("Microphone audio overflowed. Restart voice; reduce load.")
                         if not stream.active:
                             raise VoiceError("Microphone stopped unexpectedly. Check the input device.")
+                        state = "MUTED" if gate is not None and not gate.is_set() else "LISTENING — CREATE/REMOVE ONLY"
+                        if state != shown_state:
+                            config.state(state)
+                            shown_state = state
                         try:
                             data, active = chunks.get_nowait()
                         except queue.Empty:
@@ -232,5 +237,27 @@ async def _stream(emit, stop, config, api_key, dependencies):
 def run_microphone(emit, stop_event, config) -> None:
     api_key = os.environ.get("ELEVENLABS_API_KEY", "").strip()
     if not api_key:
-        raise VoiceError("ELEVENLABS_API_KEY is missing. Set it in the environment; use --typed meanwhile.")
-    asyncio.run(_stream(emit, stop_event, config, api_key, _dependencies()))
+        raise VoiceError("ELEVENLABS_API_KEY is missing. Set it in the environment; use --no-mic for the companion or --typed for the voice diagnostic meanwhile.")
+    dependencies = _dependencies()
+    async def sessions():
+        while not stop_event.is_set():
+            config.state("CONNECTING")
+            if config.session_id:
+                while config.session_id() is None and not stop_event.is_set():
+                    await asyncio.sleep(.05)
+            if stop_event.is_set():
+                break
+            session = config.session_id() if config.session_id else None
+            if config.session_id and session is None:
+                continue  # Disconnected between the readiness check and capture.
+            class StreamStop:
+                def is_set(self, expected=session):
+                    return stop_event.is_set() or bool(config.session_id and config.session_id() != expected)
+            # The final transport check is atomic with enqueue, closing the
+            # callback/reconnect race as well as dropping old SDK callbacks.
+            bound_emit = (lambda event, expected=session: config.emit_for_session(event, expected)) if config.emit_for_session else emit
+            await _stream(bound_emit, StreamStop(), config, api_key, dependencies)
+            if not config.session_id:
+                break
+            # _stream has closed its mic/SDK/HTTP resources before the next opens.
+    asyncio.run(sessions())

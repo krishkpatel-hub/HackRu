@@ -28,6 +28,7 @@ Blender → companion: `status`. Both directions send the initial `hello` as des
 | Type | Required payload fields |
 | --- | --- |
 | `command` / `spawn` | `id` UUID, `action: "spawn"`, `shape`: `cube`, `sphere`, `cylinder`, `prism` |
+| `command` / `remove` | `id` UUID, `action: "remove"`, `shape`: `cube`, `sphere`, `cylinder`, `prism`; one matching active selected tagged object only |
 | `command` / `set_mode` | `id` UUID, `action: "set_mode"`, `mode`: `MOVE`, `ROTATE`, `SCALE`, `EXTRUDE`; ROTATE optionally accepts `axis` FREE/X/Y/Z (default FREE for coherent controls; legacy uses Z); EXTRUDE optionally accepts `plane` AUTO/XY/XZ/YZ (default AUTO) and `axis` NONE/X/Y/Z (default NONE). Explicit axes must belong to explicit planes. |
 | `command` / `precision` | `id` UUID, `action: "precision"`, `mode`, finite numeric `value`; `axis` required for MOVE/ROTATE and forbidden for SCALE/EXTRUDE. Bounds and semantics below. |
 | `command` / `cancel` or `undo` | `id` UUID, `action`: `cancel` or `undo` |
@@ -35,11 +36,11 @@ Blender → companion: `status`. Both directions send the initial `hello` as des
 | `hand_frame` | `u`, `v`, `present` boolean, `pinching` boolean |
 | `gesture_start`, `gesture_end` | `gesture_id` UUID, `u`, `v` |
 | `gesture_cancel` | `gesture_id` UUID, `reason` text |
-| `status` | `mode`, `phase`, `selected_object`, `hovered_object`, `tracking`, `last_error` |
+| `status` | `mode`, `phase`, `selected_object`, `hovered_object`, `tracking`, `last_error`; optional `message` (latest completion/instruction, ≤1024 characters) |
 
 Coordinates must be finite numbers in `[0, 1]`; boolean values are not coordinates. Only absent `hand_frame` observations (`present: false`) may use null coordinates, with both `u` and `v` null. Visible/start/end coordinates cannot be null. Text fields allow at most 1024 Unicode characters and must encode as UTF-8. Extra payload fields are rejected.
 
-**Spawn, MOVE, ROTATE, SCALE and single-face EXTRUDE** change the scene. Matching gesture start/end/cancel events control the armed transform; frames only report/update an existing preview. Commands `cancel`, `undo`, and `set_mode: MOVE/ROTATE/SCALE/EXTRUDE` are implemented. See [MOVE handoff](move_handoff.md) for lifecycle, camera setup, and validation.
+**Spawn, REMOVE, MOVE, ROTATE, SCALE and single-face EXTRUDE** change the scene. Matching gesture start/end/cancel events control the armed transform; frames only report/update an existing preview. Commands `cancel`, `undo`, and `set_mode: MOVE/ROTATE/SCALE/EXTRUDE` are implemented. See [MOVE handoff](move_handoff.md) for lifecycle, camera setup, and validation.
 
 Example status (at most 4 Hz while idle, also after received actions/errors):
 
@@ -47,9 +48,9 @@ Example status (at most 4 Hz while idle, also after received actions/errors):
 {"v":1,"type":"status","session_id":"9a6d7dd7-1ee2-46a4-95cb-cf34d2fb92a6","seq":2,"payload":{"mode":"MOVE","phase":"IDLE","selected_object":"Air Cube","hovered_object":null,"tracking":false,"last_error":null}}
 ```
 
-`mode` is the armed MOVE, ROTATE, SCALE or EXTRUDE; `phase` is the actual IDLE, SELECTED_READY, DRAGGING, or NEEDS_RELEASE state. `selected_object` is the selected active object's name or null. `hovered_object` is the nearest eligible mesh under the cursor or null; passive hover never selects. `tracking` requires a present observation within 0.5 seconds. `last_error` is a readable rejection/recovery diagnostic, cleared by a successful command or gesture. Status is state reporting, not a per-command acknowledgement. SELECTED_READY locks a target and baseline but does not deform it.
+`mode` is the armed MOVE, ROTATE, SCALE or EXTRUDE; `phase` is the actual IDLE, SELECTED_READY, DRAGGING, or NEEDS_RELEASE state. `selected_object` is the selected active object's name or null. `hovered_object` is the nearest eligible mesh under the cursor or null; passive hover never selects. `tracking` requires a present observation within 0.5 seconds. `last_error` is a readable rejection/recovery diagnostic, cleared by a successful command or gesture. `message` supplies concise completion/instruction feedback (e.g. “Removed cube; Undo restores it”); `last_error` reports rejection. Status remains state reporting, not a durable per-command acknowledgement. SELECTED_READY locks a target and baseline but does not deform it.
 
-In the **legacy single-cursor stream**, a start uses its own coordinates and locks a target, original transform, mode, axis, sensitivity and fixed view mapping. Frames preview from the original transform only; matching end honors final coordinates and creates one undoable transform, then returns to MOVE. Absent frames freeze immediately; 0.5 seconds without a present observation cancels, including stopped streams. Interruptions restore baseline and require a fresh present, non-pinching frame before another start. H independently enforces physical release; its `pinching` flag means gesture-active, never permission to start editing. Duplicate starts are remembered per session (4096 limit); mismatched ends/cancels are ignored. Spawn and mode changes during drag are rejected. The coherent two-hand stream instead follows the clutch lifecycle below.
+In the **legacy single-cursor stream**, a start uses its own coordinates and locks a target, original transform, mode, axis, sensitivity and fixed view mapping. Frames preview from the original transform only; matching end honors final coordinates and creates one undoable transform, then returns to MOVE. Absent frames freeze immediately; 0.5 seconds without a present observation cancels, including stopped streams. Interruptions restore baseline and require a fresh present, non-pinching frame before another start. H independently enforces physical release; its `pinching` flag means gesture-active, never permission to start editing. Duplicate starts are remembered per session (4096 limit); mismatched ends/cancels are ignored. Spawn, removal and mode changes during drag are rejected. The coherent two-hand stream instead follows the clutch lifecycle below.
 
 ## Teammate callback
 
@@ -72,7 +73,7 @@ accepted = emit({
 
 `BridgeServer.emit(event: dict) -> bool` is thread-safe and nonblocking with respect to network I/O and queue space. It validates and snapshots the event under short memory-only synchronization. H/V supply **only** `type` and `payload`, including their own command/gesture UUIDs. One transport thread assigns all outgoing envelope sequence numbers and writes bytes. H/V must not create sockets, add envelope fields, manage Blender modes, or retry discarded input after reconnect. Their existing service signatures and independent print-JSON harnesses remain unchanged.
 
-`True` means queued in the current ready session, not confirmed scene execution. `False` means invalid input, no ready connection, a session change during the call, or queue overflow; `server.last_error` explains. The callback captures its initial session so an in-flight call cannot cross reconnect. Preserve ordered boundary events. Only a trailing legacy `hand_frame` may be replaced by another consecutive legacy `hand_frame`; never coalesce across a command or gesture boundary. **`hands_frame` events are never coalesced**, because each coherent capture can contain either hand's START/END/CANCEL boundary. The callback queue holds at most 256 events. Overflow faults the connection and discards pending input rather than silently losing boundaries.
+`True` means queued in the current ready session, not confirmed scene execution. `False` means invalid input, no ready connection, a session change during the call, active-gesture CREATE/REMOVE rejection, or queue overflow; `server.last_error` explains. The callback captures its initial session so an in-flight call cannot cross reconnect. Preserve ordered boundary events. Only a trailing legacy `hand_frame` may be replaced by another consecutive legacy `hand_frame`; never coalesce across a command or gesture boundary. **`hands_frame` events are never coalesced**, because each coherent capture can contain either hand's START/END/CANCEL boundary. The callback queue holds at most 256 events. Overflow faults the connection and discards pending input rather than silently losing boundaries.
 
 ## Limits, failure and reconnect behavior
 
@@ -88,7 +89,7 @@ accepted = emit({
 From `/Users/krishpatel/HackRu`:
 
 ```sh
-.venv/bin/python -m companion.main
+.venv/bin/python -m companion.main --no-mic
 ```
 
 Connect from Blender's Air Modeler panel and wait for `READY`. Then enter:
@@ -102,13 +103,53 @@ status
 quit
 ```
 
-Typed input now reuses V's parser and UUID emitter: `create cube`, `create sphere`, `create cylinder`, `create triangular prism`, `rotate`, `rotate x/y/z`, `scale`, `extrude`, `move`, `cancel`, and `undo`. Strict `spawn <shape>` aliases are translated to V's create phrase. `quit`, EOF, or Ctrl-C stops workers and transport; no stale replay occurs. `QUEUED` is not an acknowledgement. No camera/audio packages or keys are needed for typed/synthetic operation. Optional camera/audio flags and explicit `--two-hands` / `--legacy-hands` selection are documented in [the current handoff](clutch_handoff.md); discover camera indices through the hands module before selecting them.
+Typed input reuses the shared parser and UUID emitter (including `remove cube/sphere/cylinder/prism`): `create cube`, `create sphere`, `create cylinder`, `create triangular prism`, `rotate`, `rotate x/y/z`, `scale`, `extrude`, `move`, `cancel`, and `undo`. Strict `spawn <shape>` aliases are translated to V's create phrase. `quit`, EOF, or Ctrl-C stops workers and transport; no stale replay occurs. `QUEUED` is not an acknowledgement. No camera/audio packages or keys are needed for typed/synthetic operation. Optional camera/audio flags and explicit `--two-hands` / `--legacy-hands` selection are documented in [the current handoff](clutch_handoff.md); discover camera indices through the hands module before selecting them.
 
 In the legacy single-cursor fallback, ROTATE uses horizontal displacement around a world axis; SCALE uses upward vertical displacement to enlarge. The revised clutch stream uses Right whole-hand palm translation, twist and openness, plus distinct Right pinch extrusion; Left selects only. Axis/angle/factor appear locally in the sidebar/cursor text.
 
 EXTRUDE uses an isolated geometry preview and separate geometry Undo operator. Face index, plane mapping and displacement remain Blender-owned transaction details; the tracker supplies observations, never geometry decisions. The legacy stream's outward vertical-distance mapping is distinct from the new signed plane mapping.
 
 The integrated runner also supports `--mic --push-to-talk`: local `/talk` and `/end` controls share VoiceConfig’s gate and never enter the wire protocol. See [README](../README.md) and [demo handoff](demo_handoff.md) for audio gating, launch and rehearsal details.
+
+## Automatic microphone policy and removal (0.14.0)
+
+The envelope stays v1 and hand profile stays `left_clutch_v3`. REMOVE and optional
+status `message` are additions; install matching 0.14 companion/ZIP. The packager
+copies the one shared validator unchanged. Microphone commands use an explicit
+whole-phrase allowlist in `parse_microphone_command`; the reusable typed parser
+retains modes, precision, Undo, Cancel and aliases. Speech executes timestamped
+commits only; partial/plain commits do not execute. Supported speech is CREATE or
+REMOVE followed by cube, sphere, cylinder, prism or triangular prism. No articles,
+conversational extraction, combined commands, or other spoken tools are accepted.
+Provider audio-span/text dedup remains; separate utterances get separate UUIDs.
+
+The normal runner defaults to hands-free VAD. `--no-mic`/`--typed` disables audio;
+`--mic` is a compatible explicit enable, `--push-to-talk` optionally gates the same
+stream. Synthetic/replay default to no mic. State feedback distinguishes CONNECTING,
+LISTENING — CREATE/REMOVE ONLY (after stream active), MUTED and VOICE UNAVAILABLE.
+Microphone failures do not stop hand/typed/TCP workers. Environment-only key handling
+remains. Standalone voice diagnostics still require `--mic` explicitly.
+
+`VoiceConfig.session_id` and `emit_for_session` are optional integration hooks, not
+wire fields. The integrated service waits for READY, binds an audio stream to that
+session, and closes it on disconnect/session change before opening a replacement.
+Callbacks are suppressed after invalidation. `BridgeServer.emit(event,
+expected_session=...)` checks the captured session atomically with enqueue; delayed
+old audio cannot slip across reconnect. Offline commands are discarded, never retried.
+The existing stream, microphone and SDK implementation are reused; no second stream.
+
+CREATE/REMOVE are rejected in SELECTED_READY or active preview by Blender; the
+producer also drops them when its latest status reports those phases. Rejected
+commands are not queued for release. Consumer UUIDs remain consumed on rejection.
+The main-thread undoable removal operator requires exactly one selected object,
+which must also be active, a visible editable local mesh, in only one scene, with
+no children, and have `air_modeler_shape_version=1` plus matching `air_modeler_shape`.
+These object properties are written by 0.14 creation, represent creation provenance,
+and survive renaming and later modeling. No geometric/name guessing or automatic
+migration of old objects occurs. Wrong/absent/ambiguous/unsupported selection leaves
+the scene unchanged and instructs the user to select the requested Air Modeler shape.
+Global Undo must be enabled; otherwise removal rejects. The operator deletes only the object, preserving shared mesh datablocks. One native
+Undo restores it; rejection adds no Undo entry. Existing creation operator is reused.
 
 ## Coherent whole-hand observations (0.9.0, v1 envelope)
 

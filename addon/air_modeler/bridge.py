@@ -182,7 +182,7 @@ class Client:
             label += f" {self.plane}/{self.plane_axis}"
         return label + f" [{self.source}]"
 
-    def set_mode(self, mode, axis="Z", *, source="voice override", distance=None, plane="AUTO", plane_axis="NONE"):
+    def set_mode(self, mode, axis="Z", *, source="command override", distance=None, plane="AUTO", plane_axis="NONE"):
         if self.drag:
             raise RuntimeError("Release or cancel the active drag first")
         if mode not in {"MOVE", "ROTATE", "SCALE", "EXTRUDE"}:
@@ -789,7 +789,7 @@ class Client:
         self.diagnostic_at=now
         d=self.drag;r=payload['hands']['Right'];l=payload['hands']['Left']
         import json
-        print('AIR_DIAG '+json.dumps(dict(version='0.13.0',phase=self.phase,
+        print('AIR_DIAG '+json.dumps(dict(version='0.14.0',phase=self.phase,
             age=round(now-(self.frame_origin+payload['t']),3),
             identities={h:(v['valid'],v['confidence']) for h,v in payload['hands'].items()},
             clutch=l['pinching'],fingers=r['fingers'],openness=r['openness'],
@@ -830,7 +830,7 @@ class Client:
                 self.gesture(kind, payload)
                 return
             action = payload["action"]
-            if self.drag and action in {"spawn", "set_mode", "precision"}:
+            if self.drag and action in {"spawn", "remove", "set_mode", "precision"}:
                 raise RuntimeError("Release or cancel the active drag first")
             context = self.context()
             # Native Undo replaces Scene/ViewLayer RNA. Keeping explicit data
@@ -843,6 +843,16 @@ class Client:
                     if result != {"FINISHED"}:
                         raise RuntimeError("Spawn operator did not finish")
                     _message = f"Created {payload['shape']}"
+                elif action == 'remove':
+                    from .primitives import removal_target
+                    removal_target(bpy.context, payload['shape'])  # readable rejection before operator
+                    result = bpy.ops.air_modeler.remove_primitive('EXEC_DEFAULT', True, shape=payload['shape'])
+                    if result != {'FINISHED'}:
+                        raise RuntimeError('Removal operator did not finish')
+                    self.hovered = None
+                    self.face_outline = ()
+                    self.target_message = 'No target'
+                    _message = f"Removed {payload['shape']}; Undo restores it"
                 elif action == 'precision':
                     if bpy.context.mode != 'OBJECT':
                         raise RuntimeError('Precision edits require Object Mode')
@@ -938,7 +948,7 @@ class Client:
             "mode": self.mode, "phase": self.phase, "selected_object": selected,
             "hovered_object": self.hovered,
             "tracking": self.tracking and time.monotonic() - self.last_input < 0.5,
-            "last_error": _last_error,
+            "last_error": _last_error, "message": str(_message)[:1024],
         }}
 
     def tick(self):

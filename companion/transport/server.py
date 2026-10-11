@@ -9,6 +9,7 @@ import time
 from shared.protocol import ADDRESS, INPUT_TYPES, Channel, ProtocolError, Session, validate_event
 
 MAX_EVENTS = 256
+_CURRENT_SESSION = object()
 
 
 class BridgeServer:
@@ -30,7 +31,7 @@ class BridgeServer:
         with self._lock:
             return self._session_id
 
-    def emit(self, event) -> bool:
+    def emit(self, event, *, expected_session=_CURRENT_SESSION) -> bool:
         """Accept only {type, payload}. Never wait for network I/O or queue space.
 
         Return False for invalid/offline/full input; callers must not retry stale
@@ -39,7 +40,7 @@ class BridgeServer:
         """
         with self._lock:
             session_id = self._session_id
-        if session_id is None:
+        if session_id is None or expected_session is not _CURRENT_SESSION and expected_session != session_id:
             self.last_error = "No ready Blender session; input discarded"
             return False
         try:
@@ -53,6 +54,10 @@ class BridgeServer:
         with self._lock:  # Short memory-only critical section; no socket/log calls.
             if self._session_id != session_id or self._overflow.is_set():
                 self.last_error = "Session changed or faulted; input discarded"
+                return False
+            if (event['type'] == 'command' and event['payload']['action'] in {'spawn','remove'}
+                    and (self.last_status or {}).get('phase') in {'SELECTED_READY','DRAGGING'}):
+                self.last_error = 'Release or cancel the active gesture first; command discarded'
                 return False
             if event["type"] == "hand_frame" and self._events and self._events[-1]["type"] == "hand_frame":
                 self._events[-1] = event

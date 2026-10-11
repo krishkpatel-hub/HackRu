@@ -237,7 +237,7 @@ class Check(helpers.Check):
         return uv
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,13,0)
+        assert self.module.bl_info['version']==(0,14,0)
         self.window.scene.cursor.location=(0,0,0)
         self.line('create cube')
         yield from self.until(lambda:len(self.objects())==1,'spawn cube')
@@ -618,12 +618,20 @@ class Check(helpers.Check):
         self.right_pinch((.9,.1));yield .15
         assert drag.dwell.face is None and not self.runtime().face_outline
         self.right_pinch(end);yield .5
-        self.capture(right=absent());yield .1
+        self.capture(right=absent());missing_frame=self.capture_id
+        # Assert the reset after this observation reaches the consumer, not
+        # after a guessed socket/modal scheduling delay. Keep the deadline
+        # below the production 0.5-second sustained-loss cancellation.
+        yield from self.until(lambda:runtime.frame_id>=missing_frame,'missing observation delivered',timeout=.35)
         assert drag.dwell.face is None and not self.runtime().face_outline
         self.right_pinch(end);yield .15
         assert drag.dwell.progress<.3 and drag.face_index is None
         # A .3 second capture interruption must reset, not count toward lock.
-        self.auto_frames=False;yield .3
+        self.auto_frames=False;last_sent=self.capture_id
+        # Drain already-submitted observations before timing the interruption;
+        # otherwise a queued valid frame can restart dwell during this wait.
+        yield from self.until(lambda:runtime.frame_id>=last_sent,'pre-gap observations delivered',timeout=.35)
+        yield .3
         assert drag.dwell.face is None and not self.runtime().face_outline
         self.auto_frames=True;self.right_pinch(end);yield .15
         assert drag.dwell.progress<.3 and drag.face_index is None
@@ -680,8 +688,9 @@ class Check(helpers.Check):
         print('PASS preview Undo cancels first, disconnect/disable/reconnect/shutdown restore exact geometry and free resources',flush=True)
 
 
-check = Check()
-check.deadline = time.monotonic()+480
+check = Check() if __name__ == '__main__' else None
+if check is not None:
+    check.deadline = time.monotonic()+480
 
 
 def advance():
@@ -696,4 +705,5 @@ def advance():
         os._exit(1)
 
 
-bpy.app.timers.register(advance, first_interval=.2)
+if check is not None:
+    bpy.app.timers.register(advance, first_interval=.2)

@@ -58,7 +58,7 @@ class ConsoleIntegrationTests(unittest.TestCase):
         def lines(stream, stop):
             if missing_key:
                 self.assertTrue(entered.wait(2))
-            if '--mic' in args and not missing_key:
+            if '--no-mic' not in args and not missing_key:
                 self.assertTrue(entered.wait(2))
                 self.assertIsInstance(captured['config'], VoiceConfig)
                 gate = captured['config'].push_to_talk_event
@@ -130,17 +130,19 @@ class ConsoleIntegrationTests(unittest.TestCase):
     def test_hands_free_and_disabled_controls(self):
         self.assertIn('PTT unavailable', self.exercise(['--mic']))
         self.assertIn('PTT unavailable', self.exercise([]))
+        self.assertIn('VOICE MUTED', self.exercise(['--no-mic']))
+        self.exercise(['--push-to-talk'], ptt=True)
 
     def test_missing_key_keeps_typed_input(self):
         output = self.exercise(['--mic', '--push-to-talk'], missing_key=True)
         self.assertIn('ELEVENLABS_API_KEY is missing', output)
         self.assertIn('Other inputs remain available', output)
 
-    def test_ptt_requires_microphone(self):
+    def test_ptt_rejects_explicitly_disabled_microphone(self):
         from companion.main import main
         from unittest.mock import patch
         with patch('sys.stderr'), self.assertRaises(SystemExit) as result:
-            main(['--push-to-talk'])
+            main(['--no-mic','--push-to-talk'])
         self.assertEqual(result.exception.code, 2)
 
 
@@ -164,6 +166,6 @@ class ExplicitHandModeTests(unittest.TestCase):
             def lines(*args):
                 self.assertTrue(entered.wait(2));yield 'quit'
             with patch('companion.main.BridgeServer',return_value=MagicMock()), patch('companion.main.typed_lines',side_effect=lines), patch('companion.hands.tracker.run_hand_tracker',side_effect=tracker), patch('sys.stdout'):
-                self.assertEqual(main(['--camera','0',flag]),0)
+                self.assertEqual(main(['--camera','0',flag,'--no-mic']),0)
             self.assertEqual(captured['two_hands'],expected)
             self.assertFalse(captured['preview'])

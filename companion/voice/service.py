@@ -32,14 +32,17 @@ class VoiceConfig:
     push_to_talk_event: Event | None = None
     connection_timeout: float = 10.0
     operation_timeout: float = 5.0
+    state: Callable[[str], None] = stderr_feedback
+    # Integration hooks: each audio stream is bound to one ready Blender session.
+    session_id: Callable[[], str | None] | None = None
+    emit_for_session: Callable[[dict, str], bool] | None = None
 
 
-def emit_command(text: str, emit: Callable[[dict], None], stop_event: Event) -> bool:
-    payload = parse_command(text)
+def emit_command(text: str, emit: Callable[[dict], None], stop_event: Event, *, parser=parse_command) -> bool:
+    payload = parser(text)
     if payload is None or stop_event.is_set():
         return False
-    emit({"type": "command", "payload": {"id": str(uuid4()), **payload}})
-    return True
+    return emit({"type": "command", "payload": {"id": str(uuid4()), **payload}}) is not False
 
 
 def typed_lines(stream: TextIO, stop_event: Event):

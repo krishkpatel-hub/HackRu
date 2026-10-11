@@ -1,12 +1,12 @@
 # Air Modeler — HackRU
 
-## Current interaction: 0.13.0
+## Current interaction: 0.14.0
 
 Left thumb/index pinch selects and holds the **object only**; Left movement is inert.
 Right open-palm translation controls MOVE, whole-hand closing/reopening controls
 SCALE, palm orientation controls free/three-axis ROTATE, and an isolated thumb/index
 pinch enters EXTRUDE targeting. Active tools stay locked until completion/cancel.
-Typed/voice overrides, numeric commands, push-to-talk and typed fallback remain.
+Typed overrides, numeric commands, optional push-to-talk and typed fallback remain. Microphone speech is CREATE/REMOVE only.
 
 **Extrusion: Right-pinch, hover the displayed Right cursor inside the desired visible
 face for two seconds, then drag.** Cyan shows the candidate and countdown; orange
@@ -35,12 +35,38 @@ A default 2-unit cube permits 1.98 inward units. Cancel restores the baseline;
 each meaningful completion creates one native Undo step, targeting alone creates none.
 
 [Controls, limits, installation and verified results](docs/clutch_handoff.md) ·
-[unchanged wire schema](docs/protocol.md) · [physical acceptance](docs/physical_acceptance.md) ·
+[protocol and REMOVE addition](docs/protocol.md) · [physical acceptance](docs/physical_acceptance.md) ·
 [combined demo sequence](docs/demo_handoff.md).
 
-**All 0.13 physical acceptance is NOT RUN.** Prior reports of SCALE→ROTATE confusion
+**All 0.14 physical acceptance is NOT RUN.** Prior reports of SCALE→ROTATE confusion
 and unpredictable extrusion remain recorded. Automated checks and historical
 standalone voice success are separate evidence. Sponsor attribution is unconfirmed.
+
+## Automatic voice: CREATE/REMOVE only
+
+Normal `companion.main` launches now start the existing ElevenLabs microphone worker
+in hands-free mode. No `/talk` or `/end` is needed. Wait for Blender **Connected/READY**
+and **VOICE LISTENING — CREATE/REMOVE ONLY** before speaking; pause after each phrase.
+States are CONNECTING, LISTENING — CREATE/REMOVE ONLY, MUTED, or VOICE UNAVAILABLE.
+Missing credentials/device failure leaves hands, TCP and typed input running.
+
+Supported complete spoken phrases: `create cube/sphere/cylinder/prism/triangular prism`
+and `remove cube/sphere/cylinder/prism/triangular prism`. Capitalization, whitespace
+and harmless punctuation normalize. Conversation, partial transcripts, and spoken
+rotate/scale/move/extrude/undo/cancel are ignored. Typed commands retain their grammar.
+
+REMOVE requires exactly one active selected local object carrying Air Modeler's
+creation-shape metadata. Renaming does not change that identity. Pre-0.14/untagged
+objects, wrong shapes, ambiguous selection, linked/multi-scene objects and parents
+with children reject without deletion. Only the object is removed; shared mesh data
+is preserved. Global Undo must be enabled; one native Undo restores it. CREATE/REMOVE during a selected/active
+operation reject immediately, never wait until release. [Voice details and evidence](docs/voice_auto_handoff.md).
+
+Use `--no-mic` (alias `--typed`) to disable audio, or `--push-to-talk` for optional
+PTT. Existing `--mic` remains accepted. Synthetic/replay launches default to no mic.
+Every audio stream is bound to one Blender session: reconnect closes the old stream,
+discards delayed old transcripts and starts a new stream after READY. One microphone
+stream is open at a time. Keys remain private environment variables.
 
 ## Reproducible companion setup
 
@@ -90,24 +116,24 @@ The value is hidden and absent from shell history. Launch Blender separately fro
 .venv/bin/python tools/package_addon.py
 ```
 
-ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.13.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.13.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
+ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.14.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.14.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
 
 This laptop's confirmed camera is **0**, microphone **0 (MacBook Air Microphone)**. Exact launch commands with those indices are in the [current handoff](docs/clutch_handoff.md). The variables below are for rediscovery if devices change. Choose **one** command:
 
 ```sh
-# Hands plus typed commands (no API key needed)
-/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands
+# Hands plus typed commands, microphone disabled (no API key needed)
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --no-mic
 
-# Hands plus hands-free live voice, with typed fallback
-/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --mic --device "$MIC_INDEX"
+# Hands plus automatic CREATE/REMOVE voice (normal default), typed fallback
+/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --device "$MIC_INDEX"
 
 # Hands plus push-to-talk live voice, with typed fallback
 /Users/krishpatel/HackRu/.venv/bin/python -m companion.main --camera "$CAMERA_INDEX" --model /Users/krishpatel/HackRu/companion/hands/models/hand_landmarker.task --two-hands --mic --device "$MIC_INDEX" --push-to-talk
 ```
 
-In a 3D viewport, open the N sidebar → Air Modeler → Connect. Wait for companion `READY` before commands. `Hands config:` confirms camera/model and preview False. For voice, wait for `Scribe session ready. Opening microphone; typed commands remain active.` as well. `status` shows Blender state/errors; `help` lists commands. `QUEUED` means queued, not successful scene execution: inspect Blender/status. `quit`, `/quit`, EOF or Ctrl+C stops workers and bridge.
+In a 3D viewport, open the N sidebar → Air Modeler → Connect. Wait for companion `READY` before commands. `Hands config:` confirms camera/model and preview False. For voice, wait for `VOICE LISTENING — CREATE/REMOVE ONLY` after the Scribe session and microphone are active; a Scribe-ready message alone precedes microphone opening. `status` shows Blender state/errors; `help` lists commands. `QUEUED` means queued, not successful scene execution: inspect Blender/status. `quit`, `/quit`, EOF or Ctrl+C stops workers and bridge.
 
-PTT starts **PTT MUTED**. Enter `/talk` → **PTT ARMED**, speak one complete command, then `/end` → **PTT MUTED**. Wait for `Committed with timestamps:` and the visible result before the next turn. Repeated controls are harmless; state changes print once, and `status` prints the current gate. Without `--mic --push-to-talk`, controls explain that PTT is unavailable. Hands-free mode uses speech silence detection instead.
+Optional PTT starts **PTT MUTED**; normal hands-free listening requires no gate controls. Enter `/talk` → **PTT ARMED**, speak one complete command, then `/end` → **PTT MUTED**. Wait for `Committed with timestamps:` and the visible result before the next turn. Repeated controls are harmless; state changes print once, and `status` prints the current gate. Without `--push-to-talk`, controls explain that PTT is unavailable. Hands-free mode uses speech silence detection instead.
 
 PTT gates audio at capture callbacks (100 ms blocks), replacing muted audio with zero PCM; the microphone stays open and silence is transmitted. The first queued inactive block after active audio triggers one manual commit. Buffered active audio can finish after `/end`, and the intended delayed timestamped transcript can execute while muted. Partial/plain transcripts never execute; timestamped duplicates are suppressed by the voice service. `/end` is not cancellation of already spoken commands. Do not toggle faster than one audio block or start another turn until committed feedback; shutdown stops recognition rather than draining unfinished speech. `PTT ARMED` describes the gate, not microphone health. Restart the companion after a voice startup failure; typed input and hands remain usable.
 
@@ -121,7 +147,7 @@ Common remedies:
 - Microphone unavailable: check permission and input device; integrated voice uses 16 kHz. The standalone voice diagnostic accepts `--sample-rate 48000`, but that flag is not exposed by this runner. If only 48 kHz works, use typed fallback and report the device incompatibility to V/P.
 - `NEEDS_RELEASE`: open the hand visibly before pinching again. Hover countdown: hold the Right cursor inside one eligible cyan face for 2 seconds. A mapping rejection needs a compatible plane/axis; cancel, change mapping and retry.
 
-Explicit legacy fallback: replace `--two-hands` with `--legacy-hands` in the launch command. Keep one hand in view: pinch MOVE directly; bare `rotate x/y/z` uses horizontal cursor movement, `scale` uses vertical movement, and `extrude` uses upward outward-normal distance. Camera runs require either `--two-hands` or `--legacy-hands`; omission errors rather than silently selecting legacy behavior. `--manipulator-hand Right` is retained for compatibility; Left is rejected in two-hand mode. Typed-only fallback is `/Users/krishpatel/HackRu/.venv/bin/python -m companion.main` from the project folder.
+Explicit legacy fallback: replace `--two-hands` with `--legacy-hands` in the launch command. Keep one hand in view: pinch MOVE directly; bare `rotate x/y/z` uses horizontal cursor movement, `scale` uses vertical movement, and `extrude` uses upward outward-normal distance. Camera runs require either `--two-hands` or `--legacy-hands`; omission errors rather than silently selecting legacy behavior. `--manipulator-hand Right` is retained for compatibility; Left is rejected in two-hand mode. Typed-only fallback is `/Users/krishpatel/HackRu/.venv/bin/python -m companion.main --no-mic` from the project folder.
 
 
 ## Architecture agreement (preserved)

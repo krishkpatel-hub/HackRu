@@ -122,7 +122,7 @@ class TransportTests(unittest.TestCase):
 
     def test_device_free_module_entry_point(self):
         self.server.close()  # Let the real runner own the fixed production port.
-        result = subprocess.run([sys.executable, "-m", "companion.main"],
+        result = subprocess.run([sys.executable, "-m", "companion.main", "--no-mic"],
                                 input="spawn cube\nstatus\nquit\n", text=True,
                                 capture_output=True, timeout=3)
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -1,3 +1,8 @@
+> **Current 0.14.0:** [automatic CREATE/REMOVE voice, safe removal, session binding,
+> setup and actual evidence](voice_auto_handoff.md). Normal integrated launches are
+> hands-free by default; typed commands remain broader. All live 0.14 checks are
+> NOT RUN. The reports and command lists below describe historical voice behavior.
+
 > Current **0.9.0** stabilization: [handoff](clutch_handoff.md) and [physical checklist](physical_acceptance.md). Material below records earlier versions; 0.9 physical checks are NOT RUN.
 
 > Current 0.8.0 Left-clutch/Right-whole-hand controls: [current handoff](clutch_handoff.md). Material below is historical.

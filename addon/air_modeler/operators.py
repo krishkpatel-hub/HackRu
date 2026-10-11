@@ -1,7 +1,7 @@
 import bpy
 from bpy.props import EnumProperty
 
-from .primitives import SHAPES, create_primitive, validate_context
+from .primitives import SHAPES, create_primitive, validate_context, remove_primitive
 
 
 class AIRMODELER_OT_create_primitive(bpy.types.Operator):
@@ -31,6 +31,26 @@ class AIRMODELER_OT_create_primitive(bpy.types.Operator):
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         return {"FINISHED"}
+
+
+class AIRMODELER_OT_remove_primitive(bpy.types.Operator):
+    bl_idname = "air_modeler.remove_primitive"
+    bl_label = "Remove Selected Air Modeler Primitive"
+    bl_description = "Remove only one selected object matching its recorded creation shape"
+    bl_options = {"REGISTER", "UNDO"}
+
+    shape: EnumProperty(name="Shape", items=SHAPES, default="cube")
+
+    def execute(self, context):
+        try:
+            from .bridge import dragging
+            if dragging():
+                raise RuntimeError("Release or cancel the active gesture first")
+            remove_primitive(context, self.shape)
+        except (ValueError, RuntimeError) as exc:
+            self.report({'ERROR'}, str(exc))
+            return {'CANCELLED'}
+        return {'FINISHED'}
 
 
 class AIRMODELER_OT_commit_transform(bpy.types.Operator):

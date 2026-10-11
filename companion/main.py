@@ -6,7 +6,7 @@ import sys
 import threading
 
 from companion.transport.server import BridgeServer
-from companion.voice.service import VoiceConfig, emit_command, typed_lines
+from companion.voice.service import VoiceConfig, VoiceError, emit_command, typed_lines
 from shared.protocol import SHAPES
 
 
@@ -28,14 +28,18 @@ def main(argv=None):
     hand_mode.add_argument('--legacy-hands', action='store_true', help='Explicit single-hand legacy cursor fallback; never selected automatically')
     hand_mode.add_argument('--two-hands', action='store_true', help='Enable Left selection clutch and Right whole-hand MOVE/ROTATE/SCALE or pinch EXTRUDE')
     parser.add_argument('--manipulator-hand', choices=('Right', 'Left'), default='Right')
-    parser.add_argument('--mic', action='store_true', help='Enable optional ElevenLabs microphone worker')
+    voice_mode = parser.add_mutually_exclusive_group()
+    voice_mode.add_argument('--mic', action='store_true', default=None, help='Enable microphone (default for normal launches)')
+    voice_mode.add_argument('--no-mic', '--typed', dest='mic', action='store_false', help='Disable microphone; hands/typed commands remain available')
     parser.add_argument('--device', type=int, help='Optional microphone device index')
-    parser.add_argument('--push-to-talk', action='store_true', help='With --mic, /talk arms audio and /end mutes and commits')
+    parser.add_argument('--push-to-talk', action='store_true', help='Optional PTT: /talk arms audio and /end mutes and commits')
     parser.add_argument('--synthetic', action='store_true', help='Accept raw type/payload JSON lines for camera-free gesture testing')
     parser.add_argument('--record-landmarks', help='New private JSONL file; opt-in landmarks/events only')
     parser.add_argument('--record-seconds', type=float, default=20.)
     parser.add_argument('--replay-landmarks', help='Replay a landmark capture after Blender connects; no camera')
     args = parser.parse_args(argv)
+    if args.mic is None:
+        args.mic = not (args.synthetic or args.replay_landmarks)
     if args.replay_landmarks and (args.camera is not None or args.mic or args.record_landmarks):
         parser.error('Replay cannot run alongside live capture or recording')
     if args.record_landmarks and not args.two_hands:
@@ -50,19 +54,32 @@ def main(argv=None):
     if args.two_hands and args.manipulator_hand != 'Right':
         parser.error('--two-hands uses anatomical left selection/right manipulation; omit --manipulator-hand Left')
     if args.push_to_talk and not args.mic:
-        parser.error('--push-to-talk requires --mic')
+        parser.error('--push-to-talk requires microphone enabled; remove --no-mic')
     stop = threading.Event()
     gate = threading.Event() if args.push_to_talk else None
-    voice_config = VoiceConfig(device=args.device, push_to_talk_event=gate)
     workers = []
     server = BridgeServer(log=lambda message: print(message, flush=True))
+    voice_state = None
+    def voice_status(state):
+        nonlocal voice_state
+        if state != voice_state:
+            voice_state = state
+            print(state if state == 'VOICE UNAVAILABLE' else 'VOICE '+state, flush=True)
+    voice_config = VoiceConfig(device=args.device, push_to_talk_event=gate,
+        state=voice_status, session_id=lambda:server.session_id,
+        emit_for_session=lambda event,session:server.emit(event,expected_session=session))
+    voice_status('CONNECTING' if args.mic else 'MUTED')
     def worker(name, run):
         def guarded():
             try:
                 run()
             except Exception as exc:
-                # Voice's public exceptions are already secret-safe.
-                print(f'{name} stopped: {exc}. Other inputs remain available.', file=sys.stderr, flush=True)
+                if name == 'Voice':
+                    voice_status('VOICE UNAVAILABLE')
+                    detail = str(exc) if isinstance(exc, VoiceError) else f'Unexpected voice failure ({type(exc).__name__})'
+                else:
+                    detail = str(exc)
+                print(f'{name} stopped: {detail}. Other inputs remain available.', file=sys.stderr, flush=True)
         thread = threading.Thread(target=guarded, name=name, daemon=True)
         thread.start()
         workers.append(thread)
@@ -90,13 +107,13 @@ def main(argv=None):
     if args.replay_landmarks:
         from companion.hands.recording import run_replay
         worker('Replay',lambda:run_replay(args.replay_landmarks,server.emit,stop,lambda:server.session_id))
-    print('Air Modeler companion 0.13.0; hands profile left_clutch_v3',flush=True)
+    print('Air Modeler companion 0.14.0; hands profile left_clutch_v3',flush=True)
     if args.mic:
         worker('Voice', voice)
     help_text = ('Connect in Blender, wait for READY. Type create cube/sphere/cylinder/triangular prism, '
-                 'rotate x/y/z, scale, extrude/extend, move, cancel, undo; status; help; quit. '
+                 'remove cube/sphere/cylinder/prism, rotate x/y/z, scale, extrude/extend, move, cancel, undo; status; help; quit. '
                  'Planes: extrude plane xy axis x; extrude plane auto. Precision: rotate x 45 degrees; scale by 1.5; move x 2 units; extrude 0.5 units. '
-                 'With --mic --push-to-talk: /talk arms, /end mutes and commits; wait for committed feedback.')
+                 'Microphone defaults to hands-free CREATE/REMOVE ONLY; pause after each phrase. --no-mic disables it. Optional --push-to-talk: /talk arms, /end mutes and commits.')
     if args.two_hands:
         help_text += ' Left pinch selects only. Right open palm MOVE, twist ROTATE, whole-hand close/open SCALE, isolated pinch EXTRUDE: hover the Right cursor on one face for 2 seconds, then drag.'
     elif args.legacy_hands:
@@ -124,6 +141,7 @@ def main(argv=None):
                 continue
             if text == 'status':
                 print(f'session={server.session_id} status={server.last_status} error={server.last_error}', flush=True)
+                print(voice_state if voice_state == 'VOICE UNAVAILABLE' else 'VOICE '+str(voice_state), flush=True)
                 if gate is not None:
                     print('PTT ARMED' if gate.is_set() else 'PTT MUTED', flush=True)
                 continue

@@ -100,12 +100,17 @@ class Client:
         self.phase = "NEEDS_RELEASE" if _needs_release else "IDLE"
         self.seen_gestures = set()
         self.draw_handler = None
+        self.face_draw_handler = None
         try:
             result = self.sock.connect_ex(protocol.ADDRESS)
             if result not in (0, errno.EINPROGRESS, errno.EWOULDBLOCK, errno.EALREADY, errno.EISCONN):
                 raise OSError(result, "Could not connect to companion at 127.0.0.1:8765")
             self.draw_handler = bpy.types.SpaceView3D.draw_handler_add(viewport.draw, (self,), 'WINDOW', 'POST_PIXEL')
+            self.face_draw_handler = bpy.types.SpaceView3D.draw_handler_add(viewport.draw_face, (self,), 'WINDOW', 'POST_VIEW')
         except Exception:
+            if self.draw_handler is not None:
+                bpy.types.SpaceView3D.draw_handler_remove(self.draw_handler, 'WINDOW')
+                self.draw_handler = None
             self.sock.close()
             raise
 
@@ -126,6 +131,9 @@ class Client:
         if self.draw_handler is not None:
             bpy.types.SpaceView3D.draw_handler_remove(self.draw_handler, 'WINDOW')
             self.draw_handler = None
+        if self.face_draw_handler is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(self.face_draw_handler, 'WINDOW')
+            self.face_draw_handler = None
         if self.timer is not None:
             try:
                 self.wm.event_timer_remove(self.timer)
@@ -477,7 +485,8 @@ class Client:
             if drag.right_id is None:
                 raise RuntimeError('Extrusion requires a fresh isolated Right pinch')
             self.validate_extrusion_baseline()
-            drag.face_candidates,drag.visibility_records = visibility.visible_faces(obj,self.context(),drag.view)
+            drag.ray_trees=[]
+            drag.face_candidates,drag.visibility_records = visibility.visible_faces(obj,self.context(),drag.view,drag.ray_trees)
             if not drag.face_candidates:
                 raise ValueError('No supported visible face; expose a face and reselect')
             drag.occluders = visibility.scene_stamp(self.context(),obj)
@@ -496,6 +505,8 @@ class Client:
             drag.tentative_face=None
             drag.extrusion_stage='EXTRUDE ARMED'
             drag.manipulation_ready=False
+            drag.cursor_face=None
+            self.cursor=right['u'],right['v']
             self.target_message = f'{obj.name}; EXTRUDE ARMED — drag to choose a face; {drag.plane.plane}/{drag.plane.axis} virtual mapping; right {drag.plane.horizontal}; up {drag.plane.vertical}'
         drag.last_right = dict(right)
         self.phase = 'DRAGGING'
@@ -546,6 +557,7 @@ class Client:
         elif drag.mode == 'EXTRUDE':
             self.validate_extrusion_baseline()
             from mathutils import Vector
+            self.cursor=right['u'],right['v']
             delta = right['u']-drag.pinch_reference[0],right['v']-drag.pinch_reference[1]
             vector = drag.plane.displacement(delta[0]*drag.aspect,delta[1])
             if drag.face_index is None:
@@ -558,7 +570,8 @@ class Client:
                     drag.extrusion_stage='EXTRUDE ARMED'
                     self.target_message = 'EXTRUDE ARMED: move Right hand deliberately to choose a face'
                     return
-                choice,scores,reason=visibility.choose(drag.face_candidates,vector,drag.plane,drag.direction_candidate)
+                drag.cursor_face=visibility.cursor_face(drag.face_candidates,drag.view,self.cursor,drag.ray_trees)
+                choice,scores,reason=visibility.choose(drag.face_candidates,vector,drag.plane,drag.direction_candidate,cursor_face=drag.cursor_face)
                 drag.face_scores=scores
                 if choice is None:
                     drag.direction_candidate=None
@@ -571,9 +584,9 @@ class Client:
                 index,normal,center,outline=choice
                 drag.tentative_face=index
                 drag.extrusion_stage='EXTRUDE ARMED — candidate'
-                self.target_message=f'Candidate face {index}; hold direction to lock; no deformation'
+                self.target_message=f'Candidate face {index}; '+(reason+'; ' if reason else '')+'hold direction to lock; no deformation'
                 if drag.direction_candidate!=index:
-                    if self.frame_time-getattr(drag,'highlight_at',-1)>.15:self.face_outline=()
+                    self.face_outline=outline
                     drag.direction_candidate=index;drag.direction_since=self.frame_time
                     return
                 if self.frame_time-drag.direction_since>=.06:
@@ -785,7 +798,7 @@ class Client:
         self.diagnostic_at=now
         d=self.drag;r=payload['hands']['Right'];l=payload['hands']['Left']
         import json
-        print('AIR_DIAG '+json.dumps(dict(version='0.11.0',phase=self.phase,
+        print('AIR_DIAG '+json.dumps(dict(version='0.12.0',phase=self.phase,
             age=round(now-(self.frame_origin+payload['t']),3),
             identities={h:(v['valid'],v['confidence']) for h,v in payload['hands'].items()},
             clutch=l['pinching'],fingers=r['fingers'],openness=r['openness'],
@@ -801,6 +814,8 @@ class Client:
             direction=getattr(d,'direction_evidence',None),
             direction_coherence=d.direction_window.coherence if d and hasattr(d,'direction_window') else None,
             raw_distance=getattr(d,'raw_distance',None),deadband=getattr(d,'distance_band',None),
+            shape_changing=d.intent.shape_changing if d else None,
+            right_cursor=(r['u'],r['v']) if r['valid'] else None,cursor_face=getattr(d,'cursor_face',None),
             faces=getattr(d,'face_scores',None),visibility=getattr(d,'visibility_records',None),
             limit=d.geometry.limit_reason if d and d.geometry and hasattr(d.geometry,'limit_reason') else None,
             face=d.face_index if d else None),allow_nan=False),flush=True)

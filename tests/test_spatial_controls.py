@@ -134,3 +134,16 @@ def test_replay_stops_at_session_change_even_when_already_reconnected(tmp_path):
     emitted=[]
     run_replay(path,emitted.append,Stop(),lambda:next(sessions,'second'))
     assert len(emitted)==1
+
+
+def test_fixed_wrist_mcp_frame_ignores_fingertip_flexion_and_camera_distance():
+    baseline=measured(world())
+    for closure in (0,.25,.5,.75,1,.5,0):
+        points=world(closure)
+        obs=measured(points)
+        assert s.distance(obs['orientation'],baseline['orientation'])<1e-7
+        for size in (.4,2.5):
+            moved=[tuple(size*x+offset for x,offset in zip(p,(.2,-.3,.7))) for p in points]
+            scaled=measured(moved)
+            assert scaled['openness']==pytest.approx(obs['openness'])
+            assert s.distance(scaled['orientation'],obs['orientation'])<1e-7

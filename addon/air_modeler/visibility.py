@@ -70,7 +70,7 @@ def samples(outline):
                 yield (a*x+b*y+c*(6-x-y))/6
 
 
-def visible_faces(obj,context,view):
+def visible_faces(obj,context,view,ray_trees=None):
     space=context['area'].spaces.active
     if space.shading.type=='WIREFRAME' or space.shading.show_xray:
         raise ValueError('Extrusion visibility requires a solid viewport with X-Ray off')
@@ -87,7 +87,10 @@ def visible_faces(obj,context,view):
             total+=len(mesh.vertices);polygons+=len(mesh.polygons)
             if total>100000 or polygons>100000:raise ValueError('Visibility geometry budget exceeded; isolate the demo objects')
             vertices=[evaluated.matrix_world@v.co for v in mesh.vertices]
-            if mesh.polygons:trees.append(BVHTree.FromPolygons(vertices,[tuple(p.vertices) for p in mesh.polygons]))
+            if mesh.polygons:
+                tree=BVHTree.FromPolygons(vertices,[tuple(p.vertices) for p in mesh.polygons])
+                trees.append(tree)
+                if ray_trees is not None:ray_trees.append((other==obj,tree))
         finally:evaluated.to_mesh_clear()
     if any(instance.is_instance for instance in graph.object_instances):
         raise ValueError('Instanced occluders unsupported; make demo geometry real or isolate it')
@@ -123,7 +126,7 @@ def visible_faces(obj,context,view):
     return accepted,diagnostics
 
 
-def choose(faces,vector,mapping,previous=None):
+def choose(faces,vector,mapping,previous=None,*,cursor_face=None):
     """Magnitude chooses a visible face; sign is kept for outward/inward intent."""
     direction=Vector(vector)
     horizontal=Vector(mapping.horizontal);vertical=Vector(mapping.vertical)
@@ -144,21 +147,51 @@ def choose(faces,vector,mapping,previous=None):
     useful.sort(key=lambda r:(-abs(r['alignment']),r['face']))
     if not useful:return None,ranked,f'Visible normals cannot use {mapping.plane}/{mapping.axis}; choose another plane/axis or view'
     best=useful[0];lookup={f[0]:f for f in faces}
-    competitors=[r for r in useful[1:] if lookup[r['face']][1].dot(lookup[best['face']][1])<.999]
     margin=.10 if best['face']==previous else .12
-    if abs(best['alignment'])<.55 or competitors and abs(best['alignment'])-abs(competitors[0]['alignment'])<margin:
-        return None,ranked,'Drag more clearly toward one visible face'
-    equivalent=[r for r in useful if lookup[r['face']][1].dot(lookup[best['face']][1])>=.999]
-    # Parallel normals alone do not make edits equivalent: adjacent coplanar
-    # quads (e.g. a previous cap's side ring) would deform different patches.
+    if abs(best['alignment'])<.55:
+        return None,ranked,'Drag more clearly to choose a face'
+    tied=[r for r in useful if abs(best['alignment'])-abs(r['alignment'])<margin]
     def patch(record):
         face=lookup[record['face']]
         return (tuple(round(v,6) for v in face[2]),
                 tuple(sorted(tuple(round(v,6) for v in p) for p in face[3])))
-    if any(patch(r)!=patch(best) for r in equivalent):
-        return None,ranked,'Several visible faces share this direction; expose one distinct face or use a simpler mesh'
-    chosen=min(equivalent,key=lambda r:r['face'])
-    return lookup[chosen['face']],ranked,''
+    if len({patch(r) for r in tied})>1 or any(lookup[r['face']][1].dot(lookup[best['face']][1])<.999 for r in tied):
+        # Cursor is secondary: it cannot override clear directional intent,
+        # a hidden/unobservable face, or inadequate directional alignment.
+        cue=next((r for r in tied if r['face']==cursor_face and abs(r['alignment'])>=.55),None)
+        if cue is None:return None,ranked,'Drag more clearly to choose a face'
+        return lookup[cue['face']],ranked,'Right cursor resolves tied directions'
+    return lookup[best['face']],ranked,''
+
+
+def cursor_face(faces,view,uv,trees):
+    """Ray under the displayed corrected Right cursor; reject occlusion/edge ties.
+
+    Cache the evaluated scene BVHs alongside visible faces. The controller's
+    existing scene/view invalidation cancels before these can become stale.
+    """
+    origin,direction=viewport.ray(view,uv)
+    hits=[]
+    for target,tree in trees:
+        point,normal,index,distance=tree.ray_cast(origin,direction)
+        if point is not None and distance>=0:hits.append((distance,target,index))
+    if not hits:return None
+    hits.sort();distance,target,index=hits[0]
+    if not target:return None
+    if any(not target and abs(depth-distance)<=max(1e-5,distance*1e-6) for depth,target,_ in hits):return None
+    face=next((f for f in faces if f[0]==index),None)
+    if face is None:return None
+    # A ray exactly on a shared edge has no unique face. Require the displayed
+    # cursor to be at least three pixels inside the polygon, not on its border.
+    pixel=Vector(viewport.pixels(view[0],uv))
+    outline=[projected(view,point) for point in face[3]]
+    if any(point is None for point in outline):return None
+    for a,b in zip(outline,outline[1:]+outline[:1]):
+        edge=b-a
+        if edge.length_squared<1e-9:return None
+        closest=a+edge*max(0.,min(1.,(pixel-a).dot(edge)/edge.length_squared))
+        if (pixel-closest).length<3:return None
+    return index
 
 
 def tentative(faces,scores,previous=None):

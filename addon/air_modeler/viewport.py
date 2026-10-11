@@ -98,14 +98,6 @@ def draw(client):
     shader.uniform_float('color', color)
     batch_for_shader(shader, 'LINE_STRIP', {'pos': points}).draw(shader)
 
-    if client.face_outline:
-        rv = context.space_data.region_3d
-        outline = [view3d_utils.location_3d_to_region_2d(context.region, rv, point) for point in client.face_outline]
-        if all(point is not None for point in outline):
-            shader.bind()
-            shader.uniform_float('color', (1, .7, .05, 1))
-            batch_for_shader(shader, 'LINE_STRIP', {'pos': [*outline, outline[0]]}).draw(shader)
-
     drag=client.drag
     if client.face_outline and drag and getattr(drag,'face_index',None) is not None and hasattr(drag,'locked_normal'):
         center=sum(client.face_outline,Vector())/len(client.face_outline)
@@ -125,7 +117,8 @@ def draw(client):
             batch_for_shader(shader,'LINES',{'pos':[start,end,end,end-direction*10+side*5,end,end-direction*10-side*5]}).draw(shader)
             import blf
             blf.position(0,end.x+5,end.y+5,0);blf.size(0,12);blf.color(0,.2,1.,.5,1.)
-            blf.draw(0,'OUT (virtual drag)' if virtual else 'OUT')
+            direction_label='IN' if drag.amount<0 else 'OUT'
+            blf.draw(0,('OUT (virtual drag)' if virtual else 'OUT')+f' | face {drag.face_index} | {direction_label} {abs(drag.amount):.3f}')
 
     import blf
     blf.position(0, x + 16, y + 16, 0)
@@ -133,6 +126,46 @@ def draw(client):
     blf.color(0, *color)
     blf.draw(0, client.mode_label())
 
+
+
+CANDIDATE_COLOR=(.1,.8,1.,1.)
+LOCKED_COLOR=(1.,.45,.05,1.)
+
+
+def face_style(client):
+    locked=client.drag is not None and getattr(client.drag,'face_index',None) is not None
+    return LOCKED_COLOR if locked else CANDIDATE_COLOR
+
+
+def draw_face(client):
+    """Depth-tested world-space polygon overlay; no materials/objects/Undo."""
+    context=bpy.context
+    if (context.area is None or context.region is None
+            or context.area.as_pointer()!=client.area_id
+            or context.region.as_pointer()!=client.region_id or not client.face_outline):return
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+    rv=context.space_data.region_3d
+    toward=rv.view_matrix.inverted().col[2].xyz.normalized()
+    # Tiny view-facing bias prevents self z-fighting, without disabling occlusion.
+    offset=toward*max(1e-6,rv.view_distance*1e-5)
+    outline=[point+offset for point in client.face_outline]
+    color=face_style(client)
+    old=(gpu.state.depth_test_get(),gpu.state.depth_mask_get(),gpu.state.blend_get())
+    try:
+        gpu.state.depth_test_set('LESS_EQUAL');gpu.state.depth_mask_set(False)
+        gpu.state.blend_set('ALPHA')
+        shader=gpu.shader.from_builtin('UNIFORM_COLOR');shader.bind()
+        shader.uniform_float('color',(*color[:3],.20))
+        triangles=[p for i in range(1,len(outline)-1) for p in (outline[0],outline[i],outline[i+1])]
+        batch_for_shader(shader,'TRIS',{'pos':triangles}).draw(shader)
+        line_shader=gpu.shader.from_builtin('POLYLINE_UNIFORM_COLOR');line_shader.bind()
+        line_shader.uniform_float('viewportSize',gpu.state.viewport_get()[2:])
+        line_shader.uniform_float('lineWidth',2.5);line_shader.uniform_float('color',color)
+        batch_for_shader(line_shader,'LINE_STRIP',{'pos':[*outline,outline[0]]}).draw(line_shader)
+    finally:
+        gpu.state.depth_test_set(old[0]);gpu.state.depth_mask_set(old[1])
+        gpu.state.blend_set(old[2])
 
 def pick_extrusion(context, view, uv):
     from . import extrusion

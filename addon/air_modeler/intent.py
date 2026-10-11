@@ -1,5 +1,7 @@
 """Right whole-hand intent only; the Blender Client owns selection and Undo."""
 from dataclasses import dataclass
+from collections import deque
+from statistics import median
 import math
 try:
     from . import spatial
@@ -18,6 +20,9 @@ class IntentConfig:
     persistence: float = .15
     dominance: float = 1.35
     hysteresis: float = .75  # retain an existing candidate above this score
+    evidence_window: float = .20
+    shape_deadband: float = .04  # reserve developing whole-finger change before activation
+    scale_wobble: float = math.radians(25)  # larger mixed rotation/shape stays ambiguous
     pinch_entry_window: float = .6
     loss_timeout: float = .5
     extrusion_sensitivity: float = 12.0
@@ -53,6 +58,10 @@ class Intent:
         self.approach_since = None
         self.scores = {}
         self.feedback = PROMPT
+        self.evidence = deque(maxlen=32)
+        self.shape_changing = False
+        self.shape_anchor = None
+        self.shape_changed_at = None
 
     def update(self, t, right, *, override=None):
         cfg = self.config
@@ -60,8 +69,13 @@ class Intent:
             self.__init__(cfg)
             self.feedback = right.get('shape_error') or 'Right hand absent/uncertain; selection frozen'
             return None
+        if self.evidence and t <= self.evidence[-1][0]:
+            self.candidate = self.since = None
+            self.feedback = 'Stale intent observation; hold steady'
+            return None
         if self.reference is None:
             self.reference = dict(right)
+            self.shape_anchor=tuple(right['fingers']);self.shape_changed_at=t
             self.last_angle = right['angle']
             self.pinch_armed = right['open']
             self.isolated_pending = right['pinch_pending']
@@ -71,17 +85,24 @@ class Intent:
             # Opening after a reserved/held extrusion pinch is rearming, not
             # an incidental SCALE or MOVE from the pinched shape reference.
             self.reference = dict(right)
+            self.shape_anchor=tuple(right['fingers']);self.shape_changed_at=t
             self.last_angle = right['angle']
             self.twist = 0.
             self.pinch_armed = True
             self.pinch_id = self.candidate = self.since = None
             self.isolated_pending = False
             self.approach_since = None
+            self.evidence.clear()
             self.feedback = PROMPT
             return None
         self.isolated_pending = right['pinch_pending']
         self.twist = spatial.distance(right['orientation'],self.reference['orientation'])
         self.last_angle = right['angle']
+        if max(abs(a-b) for a,b in zip(right['fingers'],self.shape_anchor))>=cfg.shape_deadband/2:
+            self.shape_anchor=tuple(right['fingers']);self.shape_changed_at=t
+        self.evidence.append((t,self.twist,right['openness'],tuple(right['fingers'])))
+        while len(self.evidence)>1 and t-self.evidence[0][0]>cfg.evidence_window+1e-9:
+            self.evidence.popleft()
         if right['open']:
             self.pinch_armed = True
             self.pinch_id = None
@@ -90,7 +111,7 @@ class Intent:
             self.pinch_start = (right['u'],right['v']) if self.pinch_id else None
             self.pinch_armed = False
         finger_changes=[a-b for a,b in zip(right['fingers'],self.reference['fingers'])]
-        whole_closure=sum(x<=-.08 for x in finger_changes)>=3
+        whole_closure=sum(x<=-cfg.shape_deadband for x in finger_changes)>=3
         isolated_stable=sum(abs(finger_changes[i])<.12 for i in (1,2,3))>=2
         if not right['extrude_pose'] or whole_closure or not isolated_stable or right['event'] == 'CANCEL':
             self.pinch_id = None
@@ -114,22 +135,35 @@ class Intent:
             else:
                 self.feedback = 'Release Right pinch, then pinch with remaining fingers open' if not self.pinch_armed else 'Isolated pinch approaching; other motion paused'
         else:
-            shape_delta = right['openness'] - self.reference['openness']
-            stable = abs(shape_delta) <= cfg.stable_openness
-            scores['ROTATE'] = abs(self.twist) / cfg.twist_threshold
-            if stable:authorized.add('ROTATE')
-            if right['open_palm'] and self.reference['open_palm']:
-                scores['MOVE'] = math.dist((right['palm_u'],right['palm_v']),
-                    (self.reference['palm_u'],self.reference['palm_v'])) / cfg.move_threshold
-                if stable:
-                    authorized.add('ROTATE')
-                    if abs(self.twist) <= cfg.twist_threshold * 2:
-                        authorized.add('MOVE')
+            # Early coherent shape change reserves SCALE before its activation
+            # threshold. MCP orientation can wobble during finger closure even
+            # though the producer correctly excludes moving fingertips.
             changes=[a-b for a,b in zip(right['fingers'],self.reference['fingers'])]
-            coherent=max(sum(x>=.08 for x in changes),sum(x<=-.08 for x in changes))>=3
-            if not coherent or abs(self.twist)>cfg.twist_threshold:
+            self.shape_changing=max(sum(x>=cfg.shape_deadband for x in changes),
+                                    sum(x<=-cfg.shape_deadband for x in changes))>=3
+            self.shape_changing=self.shape_changing and (abs(right['openness']-self.reference['openness'])>cfg.stable_openness
+                or t-self.shape_changed_at<cfg.evidence_window)
+            recent_change=max(row[2] for row in self.evidence)-min(row[2] for row in self.evidence)
+            stable=(abs(right['openness']-self.reference['openness'])<=cfg.stable_openness
+                    and not self.shape_changing and recent_change<=cfg.stable_openness)
+            twist=median(row[1] for row in self.evidence)
+            shape_delta=median(row[2] for row in self.evidence)-self.reference['openness']
+            finger_delta=[median(row[3][i] for row in self.evidence)-self.reference['fingers'][i] for i in range(4)]
+            coherent=max(sum(x>=cfg.stable_openness for x in finger_delta),
+                         sum(x<=-cfg.stable_openness for x in finger_delta))>=3
+            # Scores contain only interpretable evidence. A suppressed angular
+            # measurement must not beat otherwise valid SCALE in the ranking.
+            if stable or override=='ROTATE':
+                authorized.add('ROTATE')
+                scores['ROTATE']=twist/cfg.twist_threshold if self.twist>=cfg.twist_threshold*cfg.hysteresis else 0.
+            if right['open_palm'] and self.reference['open_palm'] and stable:
+                scores['MOVE']=math.dist((right['palm_u'],right['palm_v']),
+                    (self.reference['palm_u'],self.reference['palm_v']))/cfg.move_threshold
+                if abs(self.twist)<=cfg.twist_threshold*2:authorized.add('MOVE')
+            scores['SCALE']=abs(shape_delta)/cfg.openness_threshold
+            current_coherent=max(sum(x>=cfg.stable_openness for x in changes),sum(x<=-cfg.stable_openness for x in changes))>=3
+            if not coherent or not current_coherent or (twist>cfg.scale_wobble and override!='SCALE'):
                 authorized.discard('SCALE')
-            scores['SCALE'] = abs(shape_delta) / cfg.openness_threshold
             self.feedback = 'Hold a clearer motion or use a tool override'
         self.scores = scores
         if override in ('SCALE','ROTATE'):

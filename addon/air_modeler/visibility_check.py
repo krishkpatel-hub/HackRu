@@ -36,8 +36,8 @@ def sequence():
 
     # World normals must agree with transformed face tangents under nonuniform
     # scale, rotation and reflection. Inspect every side in the actual viewport.
-    for scale in ((1.7,.6,1.2),(-1.7,.6,1.2)):
-        with bpy.context.temp_override(**context):bpy.ops.air_modeler.create_primitive(shape='cube')
+    for shape,scale in (('cube',(1.7,.6,1.2)),('cube',(-1.7,.6,1.2)),('prism',(1.7,.6,1.2))):
+        with bpy.context.temp_override(**context):bpy.ops.air_modeler.create_primitive(shape=shape)
         obj=window.view_layer.objects.active;obj.rotation_euler=(.4,-.7,.2);obj.scale=scale
         window.view_layer.update()
         for polygon in obj.data.polygons:
@@ -47,9 +47,11 @@ def sequence():
             assert abs(normal.dot(points[1]-points[0]))<1e-6 and abs(normal.dot(points[2]-points[0]))<1e-6
             rv.view_rotation=normal.to_track_quat('Z','Y');rv.view_location=center;rv.view_distance=10;rv.view_perspective='ORTHO'
             area.tag_redraw();yield .2
-            view=viewport.mapping(context);faces,_=vis.visible_faces(obj,context,view)
+            view=viewport.mapping(context);trees=[];faces,_=vis.visible_faces(obj,context,view,trees)
             actual=next(f for f in faces if f[0]==polygon.index)
             assert actual[1].dot(normal)>.99999
+            pixel=vis.projected(view,center);uv=pixel.x/view[0].width,1-pixel.y/view[0].height
+            assert vis.cursor_face(faces,view,uv,trees)==polygon.index,(shape,scale,polygon.index,uv,vis.cursor_face(faces,view,uv,trees),[(f[0],tuple(f[2])) for f in faces])
             mapping=planes.automatic(view[1].view_matrix.inverted().col[0].xyz,view[1].view_matrix.inverted().col[1].xyz)
             mapped=Vector(mapping.horizontal)*normal.dot(Vector(mapping.horizontal))+Vector(mapping.vertical)*normal.dot(Vector(mapping.vertical))
             for sign in (1,-1):
@@ -69,7 +71,8 @@ def sequence():
         faces,records=vis.visible_faces(obj,context,view)
         assert top not in [f[0] for f in faces],records
         blocker.scale=(.18,.18,.1);window.view_layer.update()
-        faces,records=vis.visible_faces(obj,context,view)
+        trees=[];faces,records=vis.visible_faces(obj,context,view,trees)
+        assert vis.cursor_face(faces,view,(.5,.5),trees) is None, "occluder under cursor must block secondary cue"
         assert top in [f[0] for f in faces],records
         assert 0<next(r for r in records if r['face']==top)['clear_samples']<25
         stamp=vis.scene_stamp(context,obj);blocker.data.vertices[0].co.z+=.1;blocker.data.update();window.view_layer.update()
@@ -102,6 +105,17 @@ def sequence():
     assert chosen is None and all(abs(r['alignment']-1)<1e-6 for r in scores)
     assert vis.tentative(projected_tie,scores)[0]==0
     assert vis.tentative(projected_tie,scores,previous=1)[0]==1
+    for index in (0,1):
+        assert vis.choose(projected_tie,(1,0,0),mapping,cursor_face=index)[0][0]==index
+    assert vis.choose(projected_tie,(1,0,0),mapping,cursor_face=99)[0] is None
+    assert vis.choose(fake,(1,.1,0),mapping,cursor_face=1)[0][0]==0,'cursor overrode clear direction'
+    assert vis.choose(parallel,(1,0,0),mapping,cursor_face=1)[0][0]==1
+    assert vis.choose(fake,(.1,1,0),mapping,cursor_face=0)[0][0]==1
+    _,near,_=vis.choose(fake,(1,.98,0),mapping)
+    assert vis.tentative(fake,near,previous=1)[0]==1
+    _,clear,_=vis.choose(fake,(1,.1,0),mapping)
+    assert vis.tentative(fake,clear,previous=1)[0]==0
+    print('PASS Right ray cue breaks only eligible ties; clear direction/occlusion priority; tentative retention and change',flush=True)
     chosen,scores,_=vis.choose(fake,(1,.1,0),mapping)
     assert chosen and chosen[0]==0 and vis.tentative(fake,scores)[0]==0
     degenerate=[(2,Vector((.1,0,.995)).normalized(),Vector(),())]

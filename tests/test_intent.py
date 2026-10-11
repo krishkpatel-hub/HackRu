@@ -133,3 +133,79 @@ def test_slow_pinch_timeout_never_falls_through_to_move_and_reopen_rearms():
     fresh=pinch()
     assert value.update(1.7,fresh) is None
     assert value.update(1.86,dict(fresh,event='NONE'))=='EXTRUDE'
+
+
+def test_gradual_closure_with_mcp_wobble_does_not_lock_rotate_first():
+    value=state()
+    outputs=[]
+    for t,openness in ((.1,.98),(.2,.94),(.26,.925),(.32,.8),(.4,.65),(.5,.45),(.6,.2),(.7,.05),(.8,.05)):
+        outputs.append(value.update(t,right(angle=.25,openness=openness)))
+    assert 'ROTATE' not in outputs, outputs
+    assert 'SCALE' in outputs, outputs
+
+
+def test_sustained_closure_with_incidental_rotation_still_scales():
+    value=state();obs=right(angle=math.radians(14),openness=.6)
+    results=[value.update(t,obs) for t in (.1,.2,.3,.4)]
+    assert 'SCALE' in results and 'ROTATE' not in results
+
+
+def test_single_angular_spike_before_closure_never_wins():
+    value=state();results=[value.update(.1,right(angle=.4))]
+    for t,openness in ((.13,.96),(.18,.9),(.24,.8),(.3,.6),(.4,.3),(.5,.05),(.6,.05)):
+        results.append(value.update(t,right(angle=.08,openness=openness)))
+    assert 'ROTATE' not in results and 'SCALE' in results
+
+
+def test_large_rotation_and_closure_remain_ambiguous_but_overrides_work():
+    value=state();obs=right(angle=.8,openness=.4)
+    for t in (.1,.2,.4,.6):assert value.update(t,obs) is None
+    for mode in ('SCALE','ROTATE'):
+        value=state()
+        assert value.update(.1,obs,override=mode) is None
+        assert value.update(.3,obs,override=mode)==mode
+
+
+def test_reopening_with_wobble_and_static_fist_rotation_are_distinct():
+    value=state(right(openness=.1,open_palm=False))
+    obs=right(openness=.6,angle=.2)
+    assert value.update(.1,obs) is None
+    assert value.update(.3,obs)=='SCALE'
+    value=state(right(openness=.1,open_palm=False))
+    activate(value,right(openness=.1,open_palm=False,angle=.3),'ROTATE')
+
+
+def test_rotation_candidate_is_reset_by_early_multifinger_change():
+    value=state();assert value.update(.1,right(angle=.3)) is None
+    assert value.candidate=='ROTATE'
+    assert value.update(.2,right(angle=.3,openness=.94)) is None
+    assert value.candidate is None and value.shape_changing
+    for t in (.3,.4,.5):assert value.update(t,right(angle=.3,openness=.94)) is None
+
+
+def test_sparse_single_spikes_cannot_survive_the_return_to_baseline():
+    for obs in (right(angle=.5),right(openness=.5)):
+        value=state()
+        assert value.update(.1,obs) is None
+        assert value.update(.29,right()) is None
+        assert value.candidate is None
+
+
+def test_minor_shape_adjustment_can_settle_then_deliberate_rotation_works():
+    value=state()
+    for t in (.1,.2,.3,.4):
+        assert value.update(t,right(openness=.94)) is None
+    obs=right(openness=.94,angle=.3)
+    results=[value.update(t,obs) for t in (.5,.6,.7,.8)]
+    assert 'ROTATE' in results
+
+
+def test_early_whole_finger_contact_is_not_an_isolated_extrusion_pinch():
+    value=state()
+    early=right(openness=.94,open=False,pinching=True,event='START',gesture_id=str(uuid4()),pinch_pending=True)
+    for t in (.1,.2,.3):
+        assert value.update(t,early if t==.1 else dict(early,event='NONE')) is None
+        assert value.pinch_id is None
+    closing=dict(early,event='NONE',openness=.5,fingers=[.5]*4,extrude_pose=False)
+    results=[value.update(t,closing) for t in (.4,.5,.6,.7)]
+    assert 'SCALE' in results and 'EXTRUDE' not in results

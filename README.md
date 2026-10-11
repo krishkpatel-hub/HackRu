@@ -1,19 +1,18 @@
 # Air Modeler — HackRU
 
-## Current interaction: 0.11.0
+## Current interaction: 0.12.0
 
-Left thumb/index pinch selects and holds the **object only**; Left movement is inert. Right open-palm translation drives MOVE, whole-finger closure/reopening drives SCALE, and palm orientation drives free three-axis ROTATE. These working controls, recognition and sensitivities are unchanged from 0.9.0.
+Left pinch selects and holds the **object only**; Left movement is inert. Right open-palm movement controls MOVE, whole-hand closing/opening controls SCALE, palm orientation controls free/three-axis ROTATE, and isolated thumb/index pinch plus drag controls EXTRUDE. Tools lock until completion or cancellation. Typed/voice overrides and PTT remain available.
 
-A fresh isolated Right pinch and deliberate drag chooses one **supported visible face**. Hidden, effectively edge-on and fully occluded faces cannot win. Perspective/orthographic projection and multiple occlusion samples use the connected 3D viewport. Alignment magnitude chooses the face; sign means outward/inward. Ambiguous or unobservable directions stay pending without geometry. The outline locks before deformation; reversing never switches faces.
+Automatic recognition now evaluates a short evidence window. Coherent finger-shape changes suppress premature ROTATE, modest palm wobble no longer rejects SCALE, and ambiguous mixed motions stay ready. Existing wrist/MCP orientation and normalized finger measurements remain separate; camera distance is not a SCALE command.
 
-Extrusion resolves AUTO or explicit XY/XZ/YZ/axis mapping before face ranking. Selection travel is consumed at lock; subsequent signed normal travel uses unchanged **12 world units per image-height** gain, maximum 4 units. Inward movement cleanly shortens supported convex cube/prism faces along their incident side planes, bounded before the first geometric event with a safety margin. It is not a cavity or arbitrary concave-mesh operation. A default 2-unit cube permits up to 1.98 inward units. Zero crossing restores original topology; cancel restores the original mesh/attributes. View navigation or external state changes during extrusion cancel and require reselection.
+Extrusion uses stable drag alignment against visible world normals in the same mapped plane. Clear direction wins; the displayed Right cursor can resolve tied directions only on an eligible unobstructed face. **Cyan** shows the tentative polygon; **orange** shows the locked face. Depth-tested tint/outline follow the preview, and the label shows face, OUT/IN and distance. Ambiguity waits without edits. The face stays locked through reversal; recognition/highlight travel causes no jump.
 
-Left release commits MOVE/ROTATE/SCALE; either valid release first commits EXTRUDE once. Tracking loss freezes then cancels, never commits. Existing release gates, separate native Undo, typed fallback and PTT remain. Positive fixed-distance extrusion uses the same visible-face selection. Rotate/finish/reselect to expose a different face; use `extrude plane xz axis z` or another compatible mapping when AUTO cannot express its normal.
+Signed extrusion retains validated outward geometry and bounded inward shortening of supported convex cube/prism faces. Inward is not a cavity or arbitrary concave-mesh operation. A default 2-unit cube permits 1.98 inward units. Cancel restores the baseline; each meaningful completion creates one native Undo step. Zero-change release creates none. Tracking loss freezes then cancels. Either valid release first completes EXTRUDE once; Left release completes other tools.
 
-Face choice now compares normalized normals and motion in the same mapped plane, waits for stable direction evidence, and keeps tied candidates tentative. The lock highlight consumes movement before deformation begins. Signed dragging uses the existing palm smoothing plus a small continuous deadband; recognition thresholds are unchanged.
+[Controls, limits, installation and verified results](docs/clutch_handoff.md) · [unchanged protocol](docs/protocol.md) · [physical acceptance](docs/physical_acceptance.md).
 
-[Current controls, inward limits, diagnostics, install and verification](docs/clutch_handoff.md) · [strict unchanged protocol](docs/protocol.md) · [physical acceptance](docs/physical_acceptance.md).
-**0.11 physical acceptance is NOT RUN.** On 0.10, the user reports EXTRUDE arms but face choice/dragging is unpredictable. The user reports selection/MOVE/SCALE/ROTATE now work reasonably well; this is separate from new-version acceptance. Synthetic tests and historical standalone voice success do not establish a combined live pass. Sponsor attribution remains unconfirmed.
+**0.12 physical acceptance is NOT RUN.** The user reports unintended ROTATE during SCALE and unintended extrusion faces. Automated tests and historical standalone voice success are separate evidence. Sponsor attribution remains unconfirmed.
 
 ## Reproducible companion setup
 
@@ -63,7 +62,7 @@ The value is hidden and absent from shell history. Launch Blender separately fro
 .venv/bin/python tools/package_addon.py
 ```
 
-ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.11.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.11.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
+ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.12.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.12.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
 
 This laptop's confirmed camera is **0**, microphone **0 (MacBook Air Microphone)**. Exact launch commands with those indices are in the [current handoff](docs/clutch_handoff.md). The variables below are for rediscovery if devices change. Choose **one** command:
 

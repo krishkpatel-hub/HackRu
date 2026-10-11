@@ -1,91 +1,71 @@
-> Current **0.12.0** SCALE arbitration and visible face intent: [handoff](clutch_handoff.md) and [physical checklist](physical_acceptance.md). Installed add-on was 0.11.0 on disk; the user reports SCALE→ROTATE confusion and unintended extrusion faces. Installation and all 0.12 physical checks remain pending. Material below records historical versions.
+# Air Modeler 0.13.0 combined demo handoff
 
-> Historical **0.9.0** stabilization: [handoff](clutch_handoff_0.9.md) and [physical checklist](physical_acceptance_0.9.md). Material below records earlier versions; 0.9 physical checks are NOT RUN.
+Install/restart and private key handling: [current engineering handoff](clutch_handoff.md#install-and-launch).
+One-action acceptance record: [physical checklist](physical_acceptance.md).
+All current physical results are **NOT RUN**. Complete readiness and safety checks
+before rehearsing this sequence. No automated or standalone voice result establishes
+a combined live pass.
 
-> Historical 0.8.0 Left-clutch/Right-whole-hand controls: [handoff](clutch_handoff_0.8.md). Material below is historical.
+Camera 0; microphone 0 (MacBook Air Microphone); existing `.venv`; worker
+`preview=False`. Source and packaged add-on 0.13.0 must match. From the intended
+3D viewport, Connect and require Blender Connected, companion READY, actual Left
+and Right observations, and **Scribe session ready** separately. A listening process
+or PTT ARMED alone proves neither tracking nor voice readiness.
 
-> Historical 0.7.0 controls and verification: [0.7 clutch handoff](clutch_handoff_0.7.md). The material below is historical and does not establish a combined 0.7.0 live pass.
+## Rehearsal sequence
 
-> Current 0.6.0 integration: [two-hand selection and precision handoff](enhancement_handoff.md). The dated results below are historical evidence, not a combined 0.6.0 live pass.
+Keep Terminal available to a helper, with PTT initially muted. For each voice turn:
+`/talk`, say one phrase, `/end`, then wait for committed text and the visible result.
+`/end` is not Cancel and does not retract buffered speech. Do not start another turn
+or reconnect with recognition still pending. Typed phrases use the same parser and
+remain available throughout. A stalled provider response calls for companion restart
+before reconnecting; transport cannot retract speech still at the provider.
 
-# Demo readiness handoff — P
+1. Voice “create cube” (typed `create cube`): one new cube, no duplicate.
+2. With Right open and still, Left pinch the cube and hold. Move Right palm to MOVE;
+   release Left to commit. Left motion must remain inert.
+3. Reselect, turn the Right palm to ROTATE through the intended three axes, then
+   release Left. If needed, typed/voice `rotate x`, `rotate y`, or `rotate z` constrains
+   the next operation; the physical gesture stays palm orientation.
+4. Reselect, close Right fingers toward a fist to shrink, hold, reopen to enlarge;
+   release Left. SCALE must not turn into ROTATE or EXTRUDE.
+5. Reselect with Right open, then isolate Right thumb/index pinch. While both pinches
+   remain held, move the displayed Right cursor inside the desired eligible face.
+   Cyan countdown must remain on that polygon for 2.0 seconds, then turn orange
+   with zero ordinary deformation. Move only after lock: outward, hold, reverse
+   through zero, then a small bounded inward shortening. Release either pinch to
+   commit once, then open both to rearm. For a mapping rejection, cancel and choose
+   a compatible plane/axis before retrying; never force an unsupported face.
+6. Voice/typed `undo` once per completed edit, waiting each time: extrusion, scale,
+   rotation, movement, then spawning. Each completed edit has its own native Undo.
+7. In separate transactions test Cancel, brief and sustained loss, disconnect/reconnect,
+   typed fallback and clean shutdown. Pending hover creates no geometry or Undo.
 
-Add-on **0.5.0** is unchanged from geometry baseline `8eda4fe0d3ba0ed93c08185a6a84835f9dfacea6`. The companion revision is the commit containing this handoff (`git log -1 --format=%H -- companion/main.py`). This milestone adds integrated PTT, console checks and reproducible instructions; it does not claim a complete live demo pass.
+## Recovery and shutdown
 
-## Available evidence, inspected 2026-10-10
+- Escape/typed `cancel` restores an unfinished preview and clears the overlay. Open
+  both required hands to rearm. Voice Cancel has recognition latency.
+- Missing/invalid tracking immediately clears an unfinished dwell. A >200 ms capture
+  gap resets it; cached timers never lock. During deformation brief loss freezes
+  and recovery rebases; sustained 0.5 s loss cancels. Loss is not release.
+- Navigation before lock resets/re-evaluates hover; navigation after lock cancels.
+- Finish speech first, disconnect during a separate preview, verify restoration;
+  reconnect explicitly, wait READY, open both hands and issue new commands. Offline
+  commands are discarded, not replayed.
+- `/end`, wait for the last committed result, then `quit` or Ctrl+C. Check restored
+  preview, camera off, terminal prompt and no worker warning. Finally
+  `unset ELEVENLABS_API_KEY`. Never print or record the value.
 
-`git fetch origin` succeeded. Both teammate tips are already ancestors of feature/blender; there were no new commits/docs to merge. No teammate implementation was changed.
+## Evidence boundaries
 
-| Evidence | Exact source / tested version | Result and limits |
-| --- | --- | --- |
-| H handoff | `4af4741f68d5dba6eb8e78b24ca94e1de156893f`, `docs/hands_handoff.md`; standalone tracker, validator checked against `b2de11b` (add-on 0.2.0 milestone) | Controlled holds/releases/loss recovery and clean shutdown reported; 4,267 live events validated. No live Blender gesture consumer tested. Not a 0.5.0 combined report. |
-| V handoff | `104924d9c38be26dc8459346be08645a62a17b3e`, `docs/voice_handoff.md`; documentation-only follow-up to voice production tip `e2164c14e63f639609613b9b6901e5c8c8e5466d` | Standalone live 11-command sequence, intentional repeats, replay dedup, venue-noise PTT, typed fallback and clean shutdown reported. No Blender version/commit tested in this report; not integrated 0.5.0 evidence. Already merged via `e40e1dc5a771e5084354e49bf108f53d644e762b`. |
-| P Python | This companion revision, Python 3.12.15 | 67 tests + 78 subtests passed. Protocol/transport, hands/voice unit checks, real runner/VoiceConfig/parser routing with substituted devices/socket boundary. No live audio or hands in these tests. |
-| P Blender | `8eda4fe0d3ba0ed93c08185a6a84835f9dfacea6`, add-on 0.5.0, Blender 5.2.2 LTS | Previously passed packaged smoke, bridge, MOVE, world rotations/scale, geometry and TCP EXTRUDE regressions, including Undo/cancel/loss/reconnect. Synthetic events/disposable scenes. No Blender changes this milestone, so native tests were not rerun. |
-| P local devices now | macOS arm64, current companion environment | Camera discovery now opens indices 0 and 1, 1920×1080, mean brightness 101/114. Earlier authorization failure no longer reproduced. Input enumeration: AirPods 0, MacBook Air microphone 2, iPhone microphone 4. These are observations, not portable defaults or selection/recording tests. |
-| Complete live 0.5.0 demo | No received report identifies this exact add-on baseline as a completed combined test | Pending hands + live voice + Blender, face-outline readability, sensitivity, interference, physical recovery and shutdown. No confirmed P-owned modeling failure reported. |
+Current automated results/limits are in the engineering handoff. The original
+67-test/78-subtest baseline and older live reports are preserved in the
+[historical demo handoff](demo_handoff_0.5.md). Teammate V's report at
+`104924d9c38be26dc8459346be08645a62a17b3e` covers standalone 11-command speech,
+intentional repetitions, deduplication, venue-noise PTT, typed fallback and shutdown.
+It does not test this two-hand Blender release. Realtime API access works according
+to that report; sponsor attribution is unconfirmed. The key owner must revoke the
+previously exposed credential and supply a replacement privately.
 
-Realtime access is confirmed by V. Sponsor attribution is **unconfirmed**: workspace/sponsor admin must verify workspace and grant. Local live credential/account access and physical microphone capture remain unverified here. Do not share keys in reports.
-
-## Setup and controls
-
-Follow [README setup and all three launch configurations](../README.md#reproducible-companion-setup). Select local devices, download/check the model, enter the ElevenLabs key privately in the companion terminal, build/install the ZIP, restart Blender and enable Global Undo. Use a separate rehearsal scene; preserve the user's working scene and `demo.blend`.
-
-Start one companion with hands and `--mic --device "$MIC_INDEX" --push-to-talk`. Wait for the Scribe-ready message, connect from the 3D viewport N sidebar, and wait for `READY`. `status` prints session, Blender mode/phase/error and the PTT gate. `help` lists phrases; `quit`/Ctrl+C shuts down. Keep the companion console accessible to a second teammate for PTT/typed controls while the demonstrator keeps their hand in view. Avoid switching/closing the captured Blender viewport during an operation.
-
-PTT begins `PTT MUTED`. `/talk` sets the one shared event and prints `PTT ARMED`; `/end` clears it and prints `PTT MUTED`. Repetition is harmless. Controls never become wire messages. Without PTT, `/talk` and `/end` explain the required flags; ordinary typed commands still use V's parser and the same Blender operators.
-
-The existing voice service keeps its microphone open, samples 100 ms blocks and substitutes silence while muted. After a captured active→inactive transition, it sends a manual commit. Buffered active audio and its intended committed result may finish after `/end`. Only timestamped committed events execute, with deduplication by text/audio span; partial/plain feedback does not execute. This milestone tests late committed routing and duplicate suppression using the real TranscriptHandler, not a live provider. Existing voice tests exercise PCM gating and one release commit with fake audio/API. The standalone live report supplies separate real-provider evidence.
-
-Wait for `Committed with timestamps:` and the visible Blender result before another turn or disconnect. `/end` does not retract speech already submitted; do not use it as Cancel. Do not immediately quit after speaking, because shutdown stops rather than drains recognition. Do not rapidly toggle below one capture block or issue empty turns; provider commit throttling is possible. A delayed provider transcript is not tied to the Blender session in the current voice interface, so do not reconnect with speech still pending: stop/restart the companion first if recognition is stalled. Transport discards already queued/offline input, but cannot cancel speech still at the provider. This is a documented boundary, not a new replay guarantee.
-
-## Roughly two-minute rehearsal
-
-Prepare the separate scene and installed add-on before timing. Keep a cube-sized target visible near the center and leave space for movement. Use one complete phrase per turn, with no narrated command phrases while armed. Keep spoken feedback/other speakers away from the microphone; feedback is text, not speech playback. A helper should enter controls silently.
-
-| Time | Action / PTT voice turn | Typed fallback | Expected visible result |
-| --- | --- | --- | --- |
-| 0–20 s | Start companion; Connect Blender; wait READY and Scribe ready; show an open hand | `status` | MOVE / IDLE, live cursor. PTT MUTED until explicitly armed. |
-| 20–35 s | `/talk`, say “create cube”, `/end`; wait committed result | `create cube` | One cube at the spawn location, selected; no duplicate cube from transcript partners. |
-| 35–50 s | Point at cube with open hand; pinch, move slowly sideways, release | `move` arms default mode; mouse manipulation is the fallback if camera fails | Cube follows viewport plane without jumping; release commits once and returns MOVE. |
-| 50–70 s | `/talk`, say “rotate z”, `/end`; wait; point/pinch and move horizontally, release | `rotate z` | Cube rotates around **world Z**, keeping its origin. About 1/8 viewport width is 45°. Release returns MOVE. |
-| 70–85 s | `/talk`, say “scale”, `/end`; wait; pinch target, raise hand a little, release | `scale` | Uniform enlargement about origin; upward 0.1 normalized height ≈1.26×. Release returns MOVE. |
-| 85–110 s | `/talk`, say “extrude”, `/end`; wait; open hand and target a clear supported face; confirm outline, pinch and raise slowly, release | `extrude` | One yellow target face outline; its cap extends outward along its normal (0.1 height = 0.4 world units). Side walls remain closed; release returns MOVE. |
-| 110–120 s | `/talk`, say “undo”, `/end`; wait for result | `undo` | Only completed extrusion disappears; previous move/rotation/scale remain. |
-
-Typed phrases select modes/create/undo through exactly the voice parser/geometry paths. They do not synthesize a hand movement; if the camera fails, finish with typed spawn/Undo and normal Blender mouse modeling, explicitly describing the live-hand limitation.
-
-EXTRUDE: use a cube quad or triangular-prism cap/side, with an outward supporting face. Target the visible face itself, not an edge/empty area. Confirm the outline and sidebar face index before pinch; a rejection must leave geometry unchanged. Closed local single-user geometry, no enabled modifiers/constraints/parent/animation/shape keys/custom normals, positive nonsingular transform, planar convex tri/quad face required. Downward movement clamps to zero (no inward extrusion). Zero-distance release adds no undo step. New eligible caps can be extruded again; do not demonstrate arbitrary recessed/concave geometry.
-
-## Recovery rehearsal before presenting
-
-- **Cancel:** during a preview, enter typed `cancel` or press Escape in Blender. Original transform/topology returns. Mode returns MOVE and phase NEEDS_RELEASE. Show a visibly open hand, then pinch again. For voice Cancel, allow for recognition delay.
-- **Tracking loss:** briefly leave camera view while pinching: preview freezes. Sustained loss around 0.5 s restores baseline. Return with an open hand before a fresh pinch. A missed-target pinch also requires release; do not drag into a target while held.
-- **Undo during drag:** cancels the uncommitted preview, then undoes the previous completed action. Use the final table step only after release if demonstrating a single extrusion Undo.
-- **Disconnect/reconnect:** finish any speech commit first; disconnect mid-preview to check restoration. Input issued while offline is discarded. Reconnect explicitly, wait READY, show an open hand, deliberately issue a new command. No transport queue replay. If a speech response is stalled, restart the companion before reconnecting as described above.
-- **Shutdown:** `/end`, wait committed/visible result, then `quit` or Ctrl+C. Check `Server stopped`, restored preview if interrupted, no surviving worker/camera capture. A native-driver join warning is a failure to report, not a clean shutdown pass.
-
-## Validation and presentation gate
-
-Commands run for this milestone:
-
-```sh
-.venv/bin/python -m pytest -q
-.venv/bin/python -m companion.main --help
-.venv/bin/python -m companion.hands --help
-.venv/bin/python -m companion.voice --help
-.venv/bin/python -m companion.hands --list-cameras
-.venv/bin/python -m companion.voice --list-devices
-.venv/bin/python tools/package_addon.py
-```
-
-PTT runner checks cover initial mute, same VoiceConfig event, repeated controls, no control wire messages, ordinary typed routing, hands-free behavior, unavailable controls, missing credentials, and clearing/joining workers at shutdown. Existing failed-device subprocess covers hands/voice failure isolation. New tests use fake device boundaries and are not physical capture verification. ZIP verification requires exactly the eight runtime modules plus byte-identical shared `_protocol.py`, version 0.5.0, and no tests/dependencies/secrets.
-
-Before presenting:
-
-- [ ] Record `git rev-parse HEAD`, installed add-on 0.5.0 and Blender version on each test laptop.
-- [ ] Select/check camera and microphone in the actual room; verify model checksum and local API access.
-- [ ] Complete the two-minute combined PTT sequence; verify each result and typed fallback, repeated command, muted speech, and no voice/hands interference.
-- [ ] Verify face outline readability, gesture sensitivity, Cancel, loss/open-hand rearming, Undo, reconnect and clean shutdown physically.
-- [ ] Have H/V report the exact tested commit/version, command and reproduction for any failure; P owns runner/Blender fixes, H tracking, V audio/transcripts. No new defect requiring teammate code changes was confirmed this run.
-- [ ] Confirm sponsor attribution with the admin before making a sponsor claim. Keep the integration PR draft until missing live checks are resolved.
+Draft PR permissions remain blocked; prepared description is
+`/tmp/air-modeler-integration-pr.md`. This does not block rehearsal. Do not merge main.

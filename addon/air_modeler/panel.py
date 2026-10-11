@@ -22,7 +22,8 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         box = layout.box()
         state, message, error, running = bridge.ui_state()
         box.label(text=f"Bridge: {state}")
-        box.label(text="Select → establish intent → release")
+        box.label(text="Left selects; Right controls")
+        box.label(text="Extrude: pinch → hover 2s → drag")
         if bridge._runtime is not None:
             for line in textwrap.wrap(bridge._runtime.mode_label(), width=40):
                 box.label(text=line)

@@ -93,6 +93,14 @@ class Check(helpers.Check):
             self.gesture('start', gid, (.5, .5))
             yield .12
             yield from self.wait_drag()
+            # New hover-specific cleanup must safely ignore the legacy drag,
+            # which has no dwell/face_index fields. Exercise a decoder rejection.
+            runtime=self.runtime();drag=runtime.drag;read=runtime.channel.read
+            before_packet=geometry.snapshot(self.obj().data)
+            runtime.channel.read=lambda sock,limit:[self.module.bridge.protocol.ProtocolError('Test invalid legacy packet')]
+            try:runtime.tick()
+            finally:runtime.channel.read=read
+            assert runtime.drag is drag and geometry.snapshot(self.obj().data)==before_packet,self.module.bridge.ui_state()
             assert self.runtime().phase == 'DRAGGING', self.module.bridge.ui_state()
             state = self.runtime().drag.geometry
             assert state.face_index == index

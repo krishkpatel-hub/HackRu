@@ -1,27 +1,50 @@
-> Current **0.9.0** stabilization: [handoff](clutch_handoff.md) and [physical checklist](physical_acceptance.md). Material below records earlier versions; 0.9 physical checks are NOT RUN.
+# Current hands integration: 0.13.0
 
-# Current hands integration: 0.8.0 whole-hand observations
+[Current controls and evidence](clutch_handoff.md) · [physical checklist](physical_acceptance.md).
+All 0.13 physical checks are NOT RUN. `--two-hands` retains anatomical Left selection
+clutch / Right manipulation. The producer emits coherent `hands_frame` observations,
+profile **left_clutch_v3**, with image cursor/palm coordinates and metric rigid-palm
+orientation plus independent four-finger articulation. Tracking chooses no tool,
+object, face, dwell state or geometry; Blender owns those decisions.
 
-The current `--two-hands` contract is [Left selection only / Right manipulation](clutch_handoff.md). Left corrected thumb/index START selects; Right palm translation, whole-hand twist/openness and isolated thumb/index pinch supply independent measurements. Tracking never chooses a Blender tool or target. The old three-finger `grip`/`aperture` fields are removed. Explicit `--legacy-hands` retains one detected hand and legacy events; camera commands without either flag fail instead of silently falling back.
+Rigid orientation uses wrist 0 and MCPs 5, 9, 17. Index/middle/ring/pinky PIP/DIP angles,
+chain-normalized MCP-tip reach and proximal palm alignment provide openness; thumb
+and finger spread do not define it. Full reliable fists remain shape-valid SCALE
+input. At least two of middle/ring/pinky must be substantially extended to permit
+isolated thumb/index pinch. Open-palm/isolated-pinch hysteresis remains 0.72/0.60.
+World landmarks are hand-relative and never absolute camera depth. No per-joint
+confidence is invented; degenerate geometry and implausible orientation jumps reject.
+Missing unused thumb joints 1–3 no longer reject otherwise usable observations.
 
-One capture and at most two detector hands emit one coherent `hands_frame`, profile `left_clutch_v2`, with explicit validity/confidence, monotonic capture ID/time, corrected pinch cursor/UUID/boundaries, filtered palm center, whole-shape validity/error, angle, openness, open-palm, extrusion-eligible and pinch-approach fields. Producer, validator, encoder, consumer and ZIP validator change together. Old 0.7 coherent fields fail closed. See [exact wire contract](protocol.md).
+One **50 ms** elapsed-time feature filter now follows raw validity/jump checks.
+Shortest-arc quaternion interpolation smooths orientation, and the same coefficient
+smooths each finger's openness; their mean remains `openness`. Missing/invalid input
+or gaps over **200 ms** reset it. Raw pose gates prevent a fist inheriting an old
+filtered extrusion permission. The 0.12 Blender evidence window/thresholds remain.
+[Measured generated-noise comparisons](clutch_handoff.md#recognition-evidence) document
+the improvement and small added activation delay; physical improvement is unverified.
 
-Whole-hand openness averages index/middle/ring/pinky PIP/DIP flexion and MCP-tip reach normalized by palm size. Thumb participates in open-palm recognition. A visible fist stays shape-valid and supplies low openness; thumb/index contact during fist closure is not extrusion because middle/ring/pinky are folded. At least two of those three must exceed openness 0.72 to authorize isolated pinch, retaining eligibility down to 0.60. Open palm requires all four fingers plus extended thumb. Default thresholds, exact formulas and 2D projection limits are documented in the current handoff; physical calibration is pending. No landmark z is camera depth.
+The working cursor engine is unchanged: one existing cursor filter, 100 ms lookback,
+closing anchor, palm-relative held movement and frozen opening/END coordinates.
+Contact/release ratios 0.35/0.60, 80 ms stable, 0.75 approach reservation remain.
+Identity confidence ≥0.8, 300 ms acquisition, 80 ms recovery, max 0.18 step and 0.12
+separation remain; array order cannot assign roles. Mirroring happens once. A missing
+hand cannot impersonate release; brief recovery rebases, sustained loss cancels.
 
-Both hands retain the existing corrected cursor engine: 100 ms aim lookback, hold during closing, palm-relative drag and frozen opening/END coordinates. Thumb/index ratios are 0.35 contact / 0.60 release, 80 ms stable; 0.75 approach reserves extrusion before contact. New whole-hand measurements don't replace cursor correction or add Blender smoothing. Brief loss reanchors without a jump; sustained loss cancels and requires observed release. Right identity remains protected while Left pinches, even when Right is open or a fist.
+Feature configuration: `HandConfig.feature_smoothing_s=0.05` (0 disables for comparison),
+`feature_max_gap_s=0.20`. These are programmatic configuration values, not new CLI
+flags. Integrated worker `preview=False` and all existing CLI/device/model paths stay.
+Actual anatomical identity and performance need the current physical checklist.
+The real historical pinch recording is sparse 2D data and cannot verify 3D articulation.
 
-Confidence/continuity gates remain ≥0.8, 300 ms acquisition, 80 ms recovery, maximum 0.18 center step and minimum 0.12 separation. Duplicate labels, crossing/uncertain paths and occlusion invalidate instead of choosing array order. The image flips horizontally exactly once before inference. MediaPipe's [official implementation](https://github.com/google-ai-edge/mediapipe/blob/master/mediapipe/python/solutions/hands.py) documents its mirrored/selfie convention, while the [Tasks result API](https://ai.google.dev/edge/api/mediapipe/python/mp/tasks/vision/HandLandmarkerResult) exposes handedness labels. Actual anatomical identity must still be checked on this laptop.
-
-Tests use explicitly generated skeletons for closure, fist contact, isolated pinch, old-grip rejection, camera scale/in-plane rotation invariance, identity uncertainty/crossing and corrected cursor lifecycle. The pre-existing genuine `real_still_pinch.json` fixture remains separate recorded evidence. Actual revised test counts are in the current handoff; no synthetic test proves a live combined demo.
-
-Standalone diagnostics (stop the companion first; don't compete for the camera):
+Standalone diagnostics, with the companion stopped first:
 
 ```sh
 /Users/krishpatel/HackRu/.venv/bin/python -m companion.hands --camera 0 --two-hands --no-preview
 /Users/krishpatel/HackRu/.venv/bin/python -m companion.hands --camera 0 --legacy-hands --no-preview
 ```
 
-Integrated workers always set `preview=False` on macOS. Model, dependency and cleanup paths are unchanged. The material below is historical one-hand setup, not instructions for current controls.
+The material below is historical teammate evidence and one-hand setup.
 
 # Hands handoff (H, `feature/hands`)
 

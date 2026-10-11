@@ -125,6 +125,9 @@ def draw(client):
     blf.size(0, 14)
     blf.color(0, *color)
     blf.draw(0, client.mode_label())
+    if drag and drag.mode=='EXTRUDE' and getattr(drag,'face_index',None) is None:
+        blf.position(0,x+16,y-4,0);blf.size(0,12)
+        blf.draw(0,client.target_message)
 
 
 

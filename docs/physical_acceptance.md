@@ -1,38 +1,45 @@
-# Air Modeler 0.12.0 physical acceptance
+# Air Modeler 0.13.0 physical acceptance
 
-**All checks NOT RUN on 0.12.0.** Latest actual user report: closing/opening the
-Right hand to SCALE often starts ROTATE, and EXTRUDE chooses an unintended face
-and needs clear highlighting. Installed add-on on disk was 0.11.0; loaded-module
-identity and a detailed failure capture were not verified. Preserve the report;
-do not convert synthetic passes into physical acceptance. Previous records:
+**All checks NOT RUN on 0.13.0.** Prior real reports: Right closing/opening sometimes
+activates ROTATE, and extrusion face choice/dragging is unpredictable. Those reports
+remain failures to address physically; generated tests do not turn them into passes.
+Installed add-on **on disk** was 0.12.0 at this inspection; loaded modules were not
+introspected. Previous records: [0.12](physical_acceptance_0.12.md),
 [0.11](physical_acceptance_0.11.md), [0.10](physical_acceptance_0.10.md).
 
-Proceed **one small action per reply**. Save a new
-`/Users/krishpatel/HackRu/rehearsal_0_12.blend` copy, then follow
-[install/restart/launch](clutch_handoff.md#install-and-launch). Confirm installed
-0.12.0, exact revision, Blender version, camera 0/mic 0, companion 0.12.0/profile v3,
-bridge Connected/READY, actual hand observations and Scribe-ready separately.
-The development companion was stopped cleanly; the user's Blender scene was left
-open. Never put a private key in this record, chat, arguments or recordings.
+Proceed **one small action per reply**, recording actual observations before advancing.
+First save a new `/Users/krishpatel/HackRu/rehearsal_0_13.blend` copy; preserve every
+older scene. Then follow [install/restart/launch](clutch_handoff.md#install-and-launch).
+The old companion was stopped cleanly for tests; the user's Blender session remains
+open. Do not paste keys or key-bearing terminal output into this record or chat.
 
-| Step | Status | One physical check | Observe and record |
+| Step | Status | Starting pose and exact action | Expected result / observation needed |
 | --- | --- | --- | --- |
-| 1 | NOT RUN | With Right open and stationary, Left pinch selects a cube; move Left slightly. | SELECTED_READY; Left inert; no geometry change or Undo entry. |
-| 2 | NOT RUN | Without a tool override, close Right gradually into a fist, pause, reopen. | SCALE activates without ROTATE/EXTRUDE or lock jump; stays SCALE through contact/reopening; positive proportional scaling around original origin. |
-| 3 | NOT RUN | Release Left, Undo, then repeat closure with a small natural palm wobble. | Still SCALE, one completion/Undo; record wobble, any ambiguity and diagnostic reason. |
-| 4 | NOT RUN | Reselect with stable openness, deliberately turn Right palm; release and Undo. | ROTATE activates; free X/Y/Z rotation remains available; no unwanted SCALE/MOVE or lock jump. |
-| 5 | NOT RUN | Reselect; Right isolated pinch, deliberately drag toward a visible face, then pause. | Displayed Right cursor, cyan actual candidate, then orange locked polygon/OUT arrow. Highlight remains on that face; no deformation during recognition/highlight. |
-| 6 | NOT RUN | Continue outward, hold, reverse to zero and slightly inward. | Continuous signed motion beyond small deadband; same face and highlight follow preview; original topology at zero; bounded clean shortening. |
-| 7 | NOT RUN | Release Right then Left, Undo; repeat with Left released first. | Exactly one completion and one Undo per meaningful extrusion; no release jump; overlays clear. |
-| 8 | NOT RUN | Reselect and repeat on each accessible cube face, one at a time. | Clear direction wins; tied directions can use displayed Right cursor inside the face; hidden faces never win. Record face/mapping/cursor and chosen result. |
-| 9 | NOT RUN | Try an ambiguous diagonal with the Right cursor off the object or on an edge. | Cyan tentative polygon and “Drag more clearly to choose a face”; no geometry. Move clearly toward another face and observe candidate change before lock. |
-| 10 | NOT RUN | Rotate the object, finish, reselect, extrude a newly exposed face. | Fresh visible world normals and correct highlighted face; repeat on a new cap where supported. |
-| 11 | NOT RUN | Separately Cancel/Escape, brief and >0.5 s hand loss, disconnect/reconnect, and disable during previews. | Brief loss freezes/reanchors; sustained loss/interrupt restores exact baseline; overlays clear and fresh release is required. |
-| 12 combined | NOT RUN | PTT `/talk` → “create cube” → `/end`, hands sequence, typed overrides/fallback, individual Undo, clean shutdown. | Actual service-ready states first; commands execute once; workers/camera close and active previews restore without warnings. |
+| 1a | NOT RUN | Hands relaxed; install/restart the rebuilt ZIP and launch the companion. | Installed and companion **0.13.0**, Blender version and git revision; Connected/READY and Scribe-ready separately. Report exact non-secret errors. |
+| 1b | NOT RUN | Show open Left alone, then Right alone, then both separated and still. | Correct anatomical labels and actual fresh hand observations; no role swaps. |
+| 2 | NOT RUN | Right open and still; aim Left cursor at a cube, pinch Left and hold. | SELECTED_READY, unchanged cube. Small Left movement remains inert. |
+| 3 | NOT RUN | Keep Left held; pinch only Right thumb/index, other fingers extended. Move Right cursor inside a visible face. | TARGETING then cyan actual polygon and “Hold on this face: … / 2.0 s”; no geometry. |
+| 4 | NOT RUN | During cyan countdown, move the still-pinched Right cursor to another eligible visible face. | Candidate changes to that polygon; countdown restarts at zero. Empty area/edge clears progress. |
+| 5 | NOT RUN | Both pinches held; hover inside one eligible face continuously for 2 seconds. | Orange lock with no ordinary deformation/jump. Small movement inside the face may retain countdown. |
+| 6a | NOT RUN | After orange lock, move Right slowly outward, hold, reverse through zero and slightly inward. | Same locked face, steady held result, continuous signed motion and bounded clean shortening. Report mapping and any limit. |
+| 6b | NOT RUN | Release Right then Left, then issue `undo`. On a separate edit reverse release order. | First release commits once without jump, second only rearms; one native Undo restores that edit. |
+| 7a | NOT RUN | Start fresh targeting; release either pinch before lock in separate trials. | No mesh change, overlay cleared, no extra Undo entry. |
+| 7b | NOT RUN | During countdown briefly hide a required hand, then recover; separately interrupt during deformation. | Countdown resets. Deformation freezes/reanchors without jump; >0.5 s loss restores baseline. Loss never commits. |
+| 7c | NOT RUN | During a separate preview press Escape or type `cancel`; then test disconnect/reconnect after speech finishes. | Exact restoration, no stale highlight/input replay; fresh observed release needed to rearm. |
+| 7d | NOT RUN | During cyan targeting navigate the viewport; in a separate locked preview navigate again. | Before lock reset/re-evaluate; after lock safely cancel. Occluded/hidden faces never target. |
+| 8a | NOT RUN | Fresh Left selection, Right open with fingers together; translate palm, then release Left. | MOVE with unchanged mapping/sensitivity and no SCALE/ROTATE. |
+| 8b | NOT RUN | Fresh Left selection, Right closes to a fist, holds and reopens, allowing small natural wobble. | SCALE only; positive proportional shrink/enlarge, stable hold, original origin/rotation/signs; no EXTRUDE. |
+| 8c | NOT RUN | Fresh Left selection, steady finger shape; twist/tilt/turn Right palm sideways through three axes. | ROTATE only; no SCALE, flips or false activation. Finger flexion alone must not create rotation. |
+| 9 | NOT RUN | Rehearse [spawning → MOVE → ROTATE → SCALE → hover/dwell EXTRUDE → individual Undo](demo_handoff.md), with PTT and typed fallback. | Every actual scene result once; record failures separately from voice-ready/hand-ready states. |
+| 10 | NOT RUN | `/end`, wait last commit, `quit`/Ctrl+C; then unset private key. | Camera off, prompt returned, workers/bridge stopped, preview restored, no shutdown warning. |
 
-For every action record exact version/revision, starting pose, PASS/FAIL/NOT RUN,
-actual observation and recovery. Incomplete groups remain NOT RUN unless a failure
-occurs. If SCALE/ROTATE still conflict, use optional 2 Hz diagnostics and the existing
-private bounded **world-landmark** capture to inspect the actual shape/orientation
-sequence before further tuning. The historical sparse pinch recording cannot
-answer that question. PR permissions do not block physical acceptance.
+For every action record version/revision, PASS/FAIL/NOT RUN, pose, actual behavior
+and recovery. Test supported rotated/nonuniform cubes and prism faces after the
+basic sequence. Numeric `extrude 0.5 units` must wait for the same dwell; its amount
+appears on the next valid observation after lock without a drag. Unsupported or
+mapping-incompatible faces must give readable feedback and no edit.
+
+If confusion persists, use optional 2 Hz diagnostics and an opt-in bounded private
+world-landmark recording of the exact failure before tuning further. There is no
+current full-pose recording of the reported physical defect. PR permissions do not
+block rehearsal, and physical results must not be inferred from automated checks.

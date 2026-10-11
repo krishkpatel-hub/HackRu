@@ -90,7 +90,7 @@ def main(argv=None):
     if args.replay_landmarks:
         from companion.hands.recording import run_replay
         worker('Replay',lambda:run_replay(args.replay_landmarks,server.emit,stop,lambda:server.session_id))
-    print('Air Modeler companion 0.12.0; hands profile left_clutch_v3',flush=True)
+    print('Air Modeler companion 0.13.0; hands profile left_clutch_v3',flush=True)
     if args.mic:
         worker('Voice', voice)
     help_text = ('Connect in Blender, wait for READY. Type create cube/sphere/cylinder/triangular prism, '
@@ -98,7 +98,7 @@ def main(argv=None):
                  'Planes: extrude plane xy axis x; extrude plane auto. Precision: rotate x 45 degrees; scale by 1.5; move x 2 units; extrude 0.5 units. '
                  'With --mic --push-to-talk: /talk arms, /end mutes and commits; wait for committed feedback.')
     if args.two_hands:
-        help_text += ' Left pinch selects only. Right open palm MOVE, twist ROTATE, whole-hand close/open SCALE, isolated pinch EXTRUDE.'
+        help_text += ' Left pinch selects only. Right open palm MOVE, twist ROTATE, whole-hand close/open SCALE, isolated pinch EXTRUDE: hover the Right cursor on one face for 2 seconds, then drag.'
     elif args.legacy_hands:
         help_text += ' LEGACY HANDS explicitly enabled: one-hand pinch cursor with typed modes.'
     print(help_text, flush=True)

@@ -10,6 +10,7 @@ import math
 from .engine import HandEngine
 from .roles import center
 from .articulation import measure, invalid
+from .feature_filter import FeatureFilter
 from shared import spatial
 
 IDENTITIES = ("Left", "Right")
@@ -180,6 +181,7 @@ class TwoHandObservations:
         self.open_since = {identity: None for identity in IDENTITIES}
         self.shapes = {identity: {} for identity in IDENTITIES}
         self.measurements = {}
+        self.feature_filters={identity:FeatureFilter(config.feature_smoothing_s,config.feature_max_gap_s) for identity in IDENTITIES}
         self.frame_id = 0
         self.last_t = 0.0
         self.landmarks = {}
@@ -214,6 +216,7 @@ class TwoHandObservations:
             if not valid:
                 self.open_since[identity] = None
                 self.shapes[identity] = {}
+                self.feature_filters[identity].reset()
                 hands[identity] = absent_observation(event, gid if event == 'CANCEL' else None)
                 continue
             if engine.ratio >= self.cfg.pinch_release:
@@ -233,6 +236,7 @@ class TwoHandObservations:
                     features=invalid('Implausible palm orientation jump; hold steady')
             if features['shape_valid']:
                 self.measurements[identity]=(t,features['orientation'])
+            features=self.feature_filters[identity].update(t,features)
             self.shapes[identity] = features
             hands[identity] = dict(valid=True, confidence=float(score), u=uv[0], v=uv[1],
                 palm_u=max(0.,min(1.,palm[0])), palm_v=max(0.,min(1.,palm[1])),

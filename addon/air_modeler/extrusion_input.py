@@ -1,43 +1,54 @@
-"""Extrusion-only evidence window and baseline deadband; no gesture ownership.
-
-The producer already smooths corrected palm motion once. Only face recognition
-uses a short median window; continuous deformation never receives another EMA.
-"""
-from collections import deque
+"""Fresh-observation hover timing and signed baseline deadband (no bpy)."""
+from dataclasses import dataclass
 import math
-from statistics import median
 
-DIRECTION_WINDOW = .12
-DIRECTION_SPAN = .08
 DEADBAND_HEIGHT = .003
 
 
-class DirectionWindow:
-    def __init__(self):
-        self.samples = deque(maxlen=24)
-        self.ready = False
-        self.span = 0.
-        self.coherence = 0.
+@dataclass(frozen=True)
+class DwellConfig:
+    duration: float = 2.0
+    max_gap: float = .20  # stricter targeting continuity; loss cancellation stays .5 s
 
-    def update(self, t, delta):
-        if not math.isfinite(t) or any(not math.isfinite(v) for v in delta):
-            raise ValueError('Nonfinite extrusion direction evidence')
-        if self.samples and t <= self.samples[-1][0]:
-            raise ValueError('Extrusion direction timestamps must increase')
-        self.samples.append((t,tuple(delta)))
-        while len(self.samples)>1 and t-self.samples[0][0]>DIRECTION_WINDOW+1e-9:
-            self.samples.popleft()
-        value=tuple(median(sample[1][i] for sample in self.samples) for i in (0,1))
-        length=math.hypot(*value)
-        aligned=0
-        for _,point in self.samples:
-            size=math.hypot(*point)
-            if length>1e-9 and size>1e-9 and sum(a*b for a,b in zip(value,point))/(length*size)>=math.cos(math.radians(15)):
-                aligned+=1
-        self.span=t-self.samples[0][0]
-        self.coherence=aligned/len(self.samples)
-        self.ready=len(self.samples)>=3 and self.span>=DIRECTION_SPAN-1e-9 and self.coherence>=.75
-        return value
+
+DWELL_CONFIG = DwellConfig()
+
+
+class FaceDwell:
+    def __init__(self, config=DWELL_CONFIG):
+        self.config = config
+        self.last_capture = self.last_received = None
+        self.reset()
+
+    def reset(self):
+        self.face = self.started_capture = self.started_received = None
+        self.progress = 0.
+
+    def update(self, capture, received, face, *, fresh=True):
+        """Only call for new observations. Both clocks must cover valid dwell.
+
+        Capture elapsed time prevents queued old frames from counting as hover;
+        receiver monotonic time prevents compressed/replayed timestamps from
+        manufacturing a two-second hold. Gaps reset rather than pause progress.
+        """
+        if (not math.isfinite(capture) or not math.isfinite(received)
+                or self.last_capture is not None and capture<=self.last_capture
+                or self.last_received is not None and received<self.last_received):
+            self.reset()
+            return False
+        gap=(self.last_capture is not None and
+             (capture-self.last_capture>self.config.max_gap+1e-9
+              or received-self.last_received>self.config.max_gap+1e-9))
+        self.last_capture,self.last_received=capture,received
+        if not fresh or face is None:
+            self.reset()
+            return False
+        if gap or face!=self.face:
+            self.reset()
+            self.face=face
+            self.started_capture,self.started_received=capture,received
+        self.progress=min(capture-self.started_capture,received-self.started_received)
+        return self.progress+1e-9>=self.config.duration
 
 
 def distance(raw, band):

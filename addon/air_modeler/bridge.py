@@ -165,7 +165,7 @@ class Client:
         if not self.clutch and axis=="FREE":axis="Z"
         label = ("ROTATE free" if axis=="FREE" else f"ROTATE world {axis}") if self.mode == "ROTATE" else self.mode
         if self.clutch and self.drag and self.drag.mode=='EXTRUDE':
-            label=getattr(self.drag,'extrusion_stage','EXTRUDE ARMED')
+            label=getattr(self.drag,'extrusion_stage','EXTRUDE TARGETING')
         if self.drag and self.drag.mode == "ROTATE":
             label += f" {math.degrees(self.drag.amount):+.1f}°"
         elif self.drag and self.drag.mode == "SCALE":
@@ -485,33 +485,40 @@ class Client:
             if drag.right_id is None:
                 raise RuntimeError('Extrusion requires a fresh isolated Right pinch')
             self.validate_extrusion_baseline()
-            drag.ray_trees=[]
-            drag.face_candidates,drag.visibility_records = visibility.visible_faces(obj,self.context(),drag.view,drag.ray_trees)
-            if not drag.face_candidates:
-                raise ValueError('No supported visible face; expose a face and reselect')
-            drag.occluders = visibility.scene_stamp(self.context(),obj)
-            drag.visibility_checked = time.monotonic()
-            drag.expected_stamp = drag.source_stamp
-            space=self.context()['area'].spaces.active
-            drag.shading=(space.shading.type,space.shading.show_xray)
-            view_rotation = drag.view[1].view_matrix.inverted()
-            drag.plane = planes.automatic(view_rotation.col[0].xyz,view_rotation.col[1].xyz,
-                drag.plane_name,drag.plane_axis,drag.intent_config.extrusion_sensitivity)
-            drag.pinch_reference = drag.pinch_start
-            drag.pinch_delta = (0.,0.)
-            drag.direction_candidate = None
-            drag.direction_since = None
-            drag.direction_window=extrusion_input.DirectionWindow()
-            drag.tentative_face=None
-            drag.extrusion_stage='EXTRUDE ARMED'
-            drag.manipulation_ready=False
+            drag.dwell=extrusion_input.FaceDwell()
+            drag.pinch_reference=(right['u'],right['v'])
+            drag.pinch_delta=(0.,0.)
             drag.cursor_face=None
             self.cursor=right['u'],right['v']
-            self.target_message = f'{obj.name}; EXTRUDE ARMED — drag to choose a face; {drag.plane.plane}/{drag.plane.axis} virtual mapping; right {drag.plane.horizontal}; up {drag.plane.vertical}'
+            self.refresh_targeting()
         drag.last_right = dict(right)
         self.phase = 'DRAGGING'
         _last_error = None
-        _message = f'{mode} locked; release Left'+(' or Right pinch' if mode == 'EXTRUDE' else '')+' to commit'
+        _message = 'EXTRUDE targeting; hover Right cursor on a face' if mode=='EXTRUDE' else f'{mode} locked; release Left to commit'
+
+    def reset_targeting(self, message='Hover the right cursor over a face.'):
+        drag=self.drag
+        if drag and drag.mode=='EXTRUDE' and hasattr(drag,'dwell') and drag.face_index is None:
+            drag.dwell.reset();drag.cursor_face=None
+            drag.extrusion_stage='EXTRUDE TARGETING'
+            self.face_outline=()
+            self.target_message=message
+
+    def refresh_targeting(self):
+        drag,obj=self.drag,self.target()
+        drag.view=viewport.mapping(self.context())
+        drag.ray_trees=[]
+        drag.face_candidates,drag.visibility_records=visibility.visible_faces(obj,self.context(),drag.view,drag.ray_trees)
+        drag.occluders=visibility.scene_stamp(self.context(),obj)
+        drag.visibility_checked=time.monotonic()
+        drag.expected_stamp=drag.source_stamp
+        space=self.context()['area'].spaces.active
+        drag.shading=(space.shading.type,space.shading.show_xray)
+        view_rotation=drag.view[1].view_matrix.inverted()
+        drag.plane=planes.automatic(view_rotation.col[0].xyz,view_rotation.col[1].xyz,
+            drag.plane_name,drag.plane_axis,drag.intent_config.extrusion_sensitivity)
+        self.reset_targeting('Hover the right cursor over a face.' if drag.face_candidates else
+            'No eligible visible face; expose a supported face or cancel and reselect.')
 
     def preview_hands(self, right, recovered=False):
         """All geometry input comes from Right; every result uses original baseline."""
@@ -535,9 +542,7 @@ class Client:
                 drag.reference_openness = right['openness']-math.log(drag.amount)/drag.intent_config.scale_sensitivity
             else:
                 drag.pinch_reference = right['u']-drag.pinch_delta[0],right['v']-drag.pinch_delta[1]
-                if drag.face_index is None:
-                    drag.direction_candidate=None
-                    drag.direction_window=extrusion_input.DirectionWindow()
+                if drag.face_index is None:self.reset_targeting()
         obj = self.target()
         if drag.mode == 'ROTATE':
             drag.rotation_delta = transforms.hand_rotation(right['orientation'],drag.orientation_reference,
@@ -561,61 +566,42 @@ class Client:
             delta = right['u']-drag.pinch_reference[0],right['v']-drag.pinch_reference[1]
             vector = drag.plane.displacement(delta[0]*drag.aspect,delta[1])
             if drag.face_index is None:
-                evidence=drag.direction_window.update(self.frame_time,(delta[0]*drag.aspect,delta[1]))
-                vector=drag.plane.displacement(*evidence)
-                drag.direction_evidence=evidence
-                # Direction uses a bounded window; live deformation uses the once-filtered cursor.
-                if math.hypot(*evidence) < .018:
-                    drag.direction_candidate=None;self.face_outline=()
-                    drag.extrusion_stage='EXTRUDE ARMED'
-                    self.target_message = 'EXTRUDE ARMED: move Right hand deliberately to choose a face'
-                    return
-                drag.cursor_face=visibility.cursor_face(drag.face_candidates,drag.view,self.cursor,drag.ray_trees)
-                choice,scores,reason=visibility.choose(drag.face_candidates,vector,drag.plane,drag.direction_candidate,cursor_face=drag.cursor_face)
-                drag.face_scores=scores
+                now=time.monotonic()
+                face=visibility.cursor_face(drag.face_candidates,drag.view,self.cursor,drag.ray_trees)
+                choice=next((f for f in drag.face_candidates if f[0]==face),None)
                 if choice is None:
-                    drag.direction_candidate=None
-                    candidate=visibility.tentative(drag.face_candidates,scores,drag.tentative_face)
-                    drag.tentative_face=candidate[0] if candidate else None
-                    self.face_outline=candidate[3] if candidate else ()
-                    drag.extrusion_stage='EXTRUDE ARMED — ambiguous'
-                    self.target_message=(f'Tentative face {candidate[0]}; ' if candidate else '')+reason+'; NO deformation'
+                    self.reset_targeting('Hover the right cursor over an eligible face; no hit, occluded, edge or unsupported geometry.')
+                    drag.dwell.update(self.frame_time,now,None)
                     return
                 index,normal,center,outline=choice
-                drag.tentative_face=index
-                drag.extrusion_stage='EXTRUDE ARMED — candidate'
-                self.target_message=f'Candidate face {index}; '+(reason+'; ' if reason else '')+'hold direction to lock; no deformation'
-                if drag.direction_candidate!=index:
-                    self.face_outline=outline
-                    drag.direction_candidate=index;drag.direction_since=self.frame_time
+                observable=visibility.observability(normal,drag.plane)
+                if observable<.25:
+                    self.reset_targeting(f'Face {index} cannot use {drag.plane.plane}/{drag.plane.axis}; cancel, choose a compatible plane/axis and retry.')
                     return
-                if self.frame_time-drag.direction_since>=.06:
-                    self.face_outline=outline;drag.highlight_at=self.frame_time
-                if self.frame_time-drag.direction_since<.10 or not drag.direction_window.ready:return
-                drag.face_index=index;drag.locked_normal=normal
-                drag.face_locked_at=self.frame_time
-                drag.extrusion_stage='EXTRUDE FACE LOCKED'
-                score=next(r for r in scores if r['face']==index)
-                drag.distance_band=extrusion_input.DEADBAND_HEIGHT*drag.plane.sensitivity*score['observable']
-                drag.pinch_reference=right['u'],right['v']
-                drag.pinch_delta=(0.,0.)
+                fresh=abs(now-(self.frame_origin+self.frame_time))<=drag.dwell.config.max_gap
+                ready=drag.dwell.update(self.frame_time,now,index,fresh=fresh)
+                if not fresh:
+                    self.reset_targeting('Observation stale; hover again with fresh tracking.')
+                    return
+                drag.cursor_face=index
                 self.face_outline=outline
-                self.target_message=(f'Face {index}; normal ({normal.x:+.2f},{normal.y:+.2f},{normal.z:+.2f}); '
-                    f'{drag.plane.plane}/{drag.plane.axis}; right {drag.plane.horizontal}; up {drag.plane.vertical}; arrow points OUT')
-                return
-            if not drag.manipulation_ready:
-                # Consume all motion during the visible lock pause too; the first
-                # manipulation sample starts at zero rather than catching up.
+                drag.extrusion_stage='EXTRUDE DWELLING'
+                self.target_message=f'Face {index}; Hold on this face: {drag.dwell.progress:.1f} / {drag.dwell.config.duration:.1f} s'
+                if not ready:return
+                # Recheck live scene/view immediately before authorizing lock.
+                # A refresh resets dwell, so cached coordinates cannot win.
+                self.validate_extrusion_baseline(force=True)
+                if drag.dwell.face!=index or drag.dwell.progress<drag.dwell.config.duration-1e-9:return
+                drag.face_index=index;drag.locked_normal=normal
+                drag.distance_band=extrusion_input.DEADBAND_HEIGHT*drag.plane.sensitivity*observable
                 drag.pinch_reference=right['u'],right['v'];drag.pinch_delta=(0.,0.)
-                if self.frame_time-drag.face_locked_at>=.12:
-                    drag.manipulation_ready=True
-                    self.target_message=f'Face {drag.face_index} locked; move Right hand along OUT arrow, reverse for inward'
-                return
-            # Direction-selection travel was consumed at lock. Signed motion now
-            # stays on this face and rebuilds only when crossing representations.
+                drag.extrusion_stage='EXTRUDE LOCKED'
+                self.target_message='Face locked — drag to extrude.' if drag.fixed_distance is None else f'Face locked — fixed {drag.fixed_distance:g} units applies on the next valid observation.'
+                return  # Ordinary extrusion is exactly zero at lock.
+            # Only post-lock displacement can deform the fixed baseline face.
             drag.raw_distance=Vector(vector).dot(drag.locked_normal)
             amount=drag.fixed_distance if drag.fixed_distance is not None else extrusion_input.distance(drag.raw_distance,drag.distance_band)
-            drag.extrusion_stage='EXTRUDE DRAGGING' if abs(amount)>extrusion.CONFIG.negligible_distance else 'EXTRUDE FACE LOCKED'
+            drag.extrusion_stage='EXTRUDE DRAGGING' if abs(amount)>extrusion.CONFIG.negligible_distance else 'EXTRUDE LOCKED'
             if drag.geometry is None and abs(amount)>extrusion.CONFIG.negligible_distance:
                 drag.geometry=signed_extrusion.SignedPreview(obj,drag.face_index,extrusion.CONFIG)
             if drag.geometry:
@@ -627,7 +613,8 @@ class Client:
             limit=drag.geometry.limit_reason if drag.geometry else ''
             if not limit and Vector(vector).length>=drag.plane.maximum-1e-6:
                 limit=f'Mapping travel limit {drag.plane.maximum:g} reached'
-            self.target_message=(f'Face {drag.face_index}; OUT arrow; {drag.plane.plane}/{drag.plane.axis}; '
+            self.target_message=(('Face locked — drag to extrude. ' if drag.extrusion_stage=='EXTRUDE LOCKED' else '')+
+                f'Face {drag.face_index}; OUT arrow; {drag.plane.plane}/{drag.plane.axis}; '
                 f'distance {amount:+.3f}; gain {drag.plane.sensitivity:g}; '
                 f'OUT {tuple(round(x,2) for x in drag.locked_normal)}; '
                 f'right {drag.plane.horizontal}; up {drag.plane.vertical}; '+limit)
@@ -756,6 +743,7 @@ class Client:
         completing = left_end or right_end
         self.tracking = bool(valid)
         if not valid:
+            self.reset_targeting('Required hand/pose uncertain; hover countdown reset.')
             if drag.lost_since is None:
                 drag.lost_since = now
             if completing or now-drag.lost_since >= drag.intent_config.loss_timeout:
@@ -787,6 +775,9 @@ class Client:
             else:
                 _message = drag.intent.feedback
             return
+        if completing and drag.mode=='EXTRUDE' and drag.face_index is None:
+            self.finish_hand(hands)
+            return
         self.preview_hands(right,recovered)
         if completing:
             self.finish_hand(hands)
@@ -798,7 +789,7 @@ class Client:
         self.diagnostic_at=now
         d=self.drag;r=payload['hands']['Right'];l=payload['hands']['Left']
         import json
-        print('AIR_DIAG '+json.dumps(dict(version='0.12.0',phase=self.phase,
+        print('AIR_DIAG '+json.dumps(dict(version='0.13.0',phase=self.phase,
             age=round(now-(self.frame_origin+payload['t']),3),
             identities={h:(v['valid'],v['confidence']) for h,v in payload['hands'].items()},
             clutch=l['pinching'],fingers=r['fingers'],openness=r['openness'],
@@ -811,12 +802,12 @@ class Client:
             extrusion_stage=getattr(d,'extrusion_stage',None),pinch_event=r['event'],
             pinch_valid=r['extrude_pose'],pinching=r['pinching'],observed_release=r['open'],
             pinch_feedback=d.intent.feedback if d else None,
-            direction=getattr(d,'direction_evidence',None),
-            direction_coherence=d.direction_window.coherence if d and hasattr(d,'direction_window') else None,
+            dwell_face=d.dwell.face if d and hasattr(d,'dwell') else None,
+            dwell_seconds=d.dwell.progress if d and hasattr(d,'dwell') else None,
             raw_distance=getattr(d,'raw_distance',None),deadband=getattr(d,'distance_band',None),
             shape_changing=d.intent.shape_changing if d else None,
             right_cursor=(r['u'],r['v']) if r['valid'] else None,cursor_face=getattr(d,'cursor_face',None),
-            faces=getattr(d,'face_scores',None),visibility=getattr(d,'visibility_records',None),
+            visibility=getattr(d,'visibility_records',None),
             limit=d.geometry.limit_reason if d and d.geometry and hasattr(d.geometry,'limit_reason') else None,
             face=d.face_index if d else None),allow_nan=False),flush=True)
 
@@ -860,7 +851,7 @@ class Client:
                     protocol.validate_precision(payload)
                     if payload['mode'] == 'EXTRUDE':
                         self.set_mode('EXTRUDE', distance=payload['value'],plane=self.plane,plane_axis=self.plane_axis)
-                        _message = ('Fixed extrusion armed: select object, pinch and drag to choose face'
+                        _message = ('Fixed extrusion armed: Left-select, Right-pinch and hover on a face for 2 seconds'
                                     if self.clutch else 'Fixed extrusion armed: select an eligible face')
                     else:
                         transforms.commit_precision(bpy.context, payload)
@@ -891,12 +882,14 @@ class Client:
             self.error(exc)
 
     def validate_extrusion_baseline(self, force=False):
-        """Cancel on stale captured view/geometry; never reuse a changed face index."""
+        """Refresh unlocked targeting or cancel; never reuse changed face indices."""
         drag,obj=self.drag,self.target()
         extrusion.validate_object(obj)
         if obj.data!=drag.source_mesh and (drag.source_mesh.users or drag.source_mesh.use_fake_user):
             raise RuntimeError('Extrusion baseline gained another owner; release and reselect')
-        if not visibility.view_unchanged(self.context(),drag.view):
+        view_changed=not visibility.view_unchanged(self.context(),drag.view)
+        targeting=drag.face_index is None and hasattr(drag,'dwell')
+        if view_changed and not targeting:
             raise RuntimeError('Viewport changed; release and reselect to capture the new view')
         if any(abs(a-b)>1e-6 for x,y in zip(obj.matrix_world,drag.baseline) for a,b in zip(x,y)):
             raise RuntimeError('Object transform changed externally; extrusion cancelled')
@@ -909,8 +902,10 @@ class Client:
         now=time.monotonic()
         if hasattr(drag,'occluders') and (force or now-drag.visibility_checked>=.25):
             if visibility.scene_stamp(self.context(),obj)!=drag.occluders:
-                raise RuntimeError('Visible scene changed; release and reselect')
+                if targeting:self.refresh_targeting()
+                else:raise RuntimeError('Visible scene changed; release and reselect')
             drag.visibility_checked=now
+        if view_changed and targeting:self.refresh_targeting()
 
     def check_tracking(self, now):
         if now - self.last_input >= .5:
@@ -925,6 +920,7 @@ class Client:
                 self.cancel_drag()
                 self.error("Drag target disappeared or became unsupported")
             elif self.clutch and getattr(self.drag,'mode',None)=='EXTRUDE':
+                if now-self.last_input>extrusion_input.DWELL_CONFIG.max_gap:self.reset_targeting('Fresh tracking required; hover countdown reset.')
                 try:self.validate_extrusion_baseline()
                 except (ValueError,RuntimeError) as exc:
                     self.cancel_drag();self.error(str(exc))
@@ -977,6 +973,7 @@ class Client:
             except protocol.SessionFull:
                 raise
             except protocol.ProtocolError as exc:
+                self.reset_targeting('Invalid or stale input; hover countdown reset.')
                 self.error(exc)
         if self.session.session_id is not None and now >= self.next_status:
             self.channel.queue(self.session.wrap(self.status()))
@@ -1028,6 +1025,10 @@ class AIRMODELER_OT_connect(bpy.types.Operator):
                 disconnect("Connection stopped; reconnect explicitly", str(exc))
                 return {"CANCELLED"}
         if self.runtime.drag and event.type != "TIMER":
+            drag=self.runtime.drag
+            if drag.mode=='EXTRUDE' and hasattr(drag,'dwell') and drag.face_index is None and event.type in {'MIDDLEMOUSE','WHEELUPMOUSE','WHEELDOWNMOUSE','TRACKPADPAN','TRACKPADZOOM'}:
+                self.runtime.reset_targeting('View navigation; hover again.')
+                return {'PASS_THROUGH'}
             if event.type == "ESC" and event.value == "PRESS":
                 self.runtime.cancel_drag()
                 return {"RUNNING_MODAL"}

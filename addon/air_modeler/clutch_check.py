@@ -194,7 +194,7 @@ class Check(helpers.Check):
             gesture_id=gid or self.right_gid,event=event,openness=.8,fingers=[.2,1.,1.,1.],open_palm=False,
             extrude_pose=True,pinch_pending=event!='END'))
 
-    def arm_extrusion(self, phrase, index, direction=1):
+    def arm_extrusion(self, phrase, index):
         center,normal=self.aim(index)
         yield .12
         yield from self.idle()
@@ -211,11 +211,14 @@ class Check(helpers.Check):
         self.right_pinch(event='START')
         yield from self.lock('EXTRUDE')
         assert self.runtime().drag.geometry is None
-        self.mapped_vector(normal*.35*direction)
-        yield from self.until(lambda:self.runtime().drag.face_index is not None,'automatic face lock')
+        yield .9
+        assert self.runtime().drag is not None,self.module.bridge.ui_state()
+        assert self.runtime().drag.face_index is None and self.runtime().drag.geometry is None
+        assert geometry.snapshot(self.obj().data)==before,'targeting changed geometry'
+        yield from self.until(lambda:self.runtime().drag.face_index is not None,'two-second hover face lock',timeout=4)
         assert self.runtime().drag.face_index==index and self.runtime().face_outline
-        assert geometry.snapshot(self.obj().data)==before,'direction lock mutated topology'
-        yield from self.until(lambda:self.runtime().drag.manipulation_ready,'highlight rebase complete')
+        if self.runtime().drag.fixed_distance is None:
+            assert geometry.snapshot(self.obj().data)==before,'dwell lock mutated topology'
         return center,normal
 
     def mapped_vector(self, vector, event='NONE', raw=False):
@@ -234,7 +237,7 @@ class Check(helpers.Check):
         return uv
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,12,0)
+        assert self.module.bl_info['version']==(0,13,0)
         self.window.scene.cursor.location=(0,0,0)
         self.line('create cube')
         yield from self.until(lambda:len(self.objects())==1,'spawn cube')
@@ -428,7 +431,7 @@ class Check(helpers.Check):
             index=max(range(len(self.obj().data.polygons)),key=lambda i:self.obj().data.polygons[i].normal.dot(vector))
             center,normal=yield from self.arm_extrusion('extrude plane '+plane.lower()+' axis '+axis.lower(),index)
             assert self.runtime().drag.plane.plane==plane and self.runtime().drag.plane.axis==axis
-            assert self.runtime().drag.geometry is None,'direction lock deformed immediately'
+            assert self.runtime().drag.geometry is None,'dwell lock deformed immediately'
             self.mapped_vector(vector*.5)
             yield from self.until(lambda:self.runtime().drag.geometry and self.runtime().drag.geometry.outward_distance>.19,'pinch cap preview')
             preview_counts=(len(self.obj().data.vertices),len(self.obj().data.polygons))
@@ -488,18 +491,20 @@ class Check(helpers.Check):
             'zero extrusion adds no Undo; sentinel creation is undone',settle=.2)
         print('PASS held Right pinch requires rearm, approach cannot steal MOVE, zero-distance restoration with no Undo entry',flush=True)
 
-        # Movement throughout the highlight must be consumed, not catch up on
-        # the first manipulation frame. Then verify raw gain/deadband/reversal.
+        # Hover movement is consumed; no direction travel or extra pause needed.
         self.line('extrude plane xz axis z');yield .12
         yield from self.start(right=palm(),uv=(.5,.5))
         self.right_pinch(event='START');yield from self.lock('EXTRUDE')
-        self.mapped_vector((0,0,.35),raw=True)
-        yield from self.until(lambda:self.runtime().drag.face_index is not None,'rebase test face lock')
         drag=self.runtime().drag
-        self.mapped_vector((0,0,.6),raw=True)
-        yield from self.until(lambda:drag.manipulation_ready,'consume highlight movement')
+        yield .8
+        assert drag.face_index is None and drag.geometry is None
+        progress=drag.dwell.progress
+        self.right_pinch((.51,.5));yield .3
+        assert drag.dwell.progress>progress and drag.face_index is None,'same-face movement reset dwell'
+        yield from self.until(lambda:drag.face_index is not None,'moving within face completes dwell',timeout=4)
         yield .1
-        assert drag.geometry is None and geometry.snapshot(self.obj().data)==mesh_before,'highlight travel jumped'
+        assert drag.geometry is None and geometry.snapshot(self.obj().data)==mesh_before,'hover travel jumped'
+        assert drag.pinch_reference==(.51,.5)
         self.mapped_vector((0,0,.02),raw=True);yield .12
         assert drag.geometry is None,'sub-deadband jitter created geometry'
         self.mapped_vector((0,0,.6),raw=True)
@@ -513,13 +518,13 @@ class Check(helpers.Check):
         self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'raw input cancellation')
         assert geometry.snapshot(self.obj().data)==mesh_before
         yield from self.idle()
-        print('PASS highlight movement consumed, raw deadband/gain, stationary hold, same-face reversal and exact cancel',flush=True)
+        print('PASS same-face hover movement preserves time and rebases at lock; raw deadband/gain/hold/reversal/cancel',flush=True)
 
         snapshots=[mesh_before]
         for distance in (.5,.25):
             index=max(range(len(self.obj().data.polygons)),key=lambda i:self.obj().data.polygons[i].center.z)
             center,normal=yield from self.arm_extrusion(f'extend {distance} units',index)
-            yield from self.until(lambda:self.runtime().drag.geometry is not None,'fixed distance after highlight')
+            yield from self.until(lambda:self.runtime().drag.geometry is not None,'fixed distance after dwell')
             assert abs(self.runtime().drag.geometry.outward_distance-distance)<1e-6
             self.right_pinch((.8,.3));yield .12
             assert abs(self.runtime().drag.geometry.outward_distance-distance)<1e-6
@@ -539,7 +544,7 @@ class Check(helpers.Check):
         assert geometry.snapshot(self.obj().data)==mesh_before
         print('PASS fixed distance after explicit Right pinch, repeated cap/consecutive Undo, reverse-to-zero release exact restoration',flush=True)
         for first in ('Right','Left'):
-            yield from self.arm_extrusion('extrude plane xz axis z',index,direction=-1 if first=='Left' else 1)
+            yield from self.arm_extrusion('extrude plane xz axis z',index)
             self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.amount>.39,'outward before reversal')
             locked=self.runtime().drag.face_index
             self.mapped_vector((0,0,-.4));yield from self.until(lambda:self.runtime().drag.amount<-.39,'inward after reversal')
@@ -583,42 +588,71 @@ class Check(helpers.Check):
         self.area.tag_redraw();yield .2
         self.line('extrude plane xy');yield .12
         yield from self.start(uv=(.5,.5));self.right_pinch((.85,.15),event='START');yield from self.lock('EXTRUDE')
-        self.mapped_vector((.35,.35,0));yield .3
+        yield .4
         assert self.runtime().drag.face_index is None and self.runtime().drag.geometry is None
+        assert not self.runtime().face_outline and self.runtime().drag.dwell.progress==0
         assert geometry.snapshot(self.obj().data)==mesh_before
-        assert self.runtime().face_outline and 'ambiguous' in self.runtime().mode_label()
-        assert 'Tentative face' in self.runtime().target_message
-        self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'ambiguous cancellation');yield from self.idle()
-        print('PASS competing visible-face diagonal remains direction pending without topology',flush=True)
+        self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'empty hover cancellation');yield from self.idle()
+        print('PASS off-object targeting has no candidate, time or geometry',flush=True)
 
-        for axis in ('X','Y'):
-            self.line('extrude plane xy');yield .12
-            yield from self.start(uv=(.5,.5))
-            self.right_pinch(event='START');yield from self.lock('EXTRUDE')
-            drag=self.runtime().drag
-            wanted=max(drag.face_candidates,key=lambda f:f[1]['XYZ'.index(axis)])
-            point=self.module.visibility.projected(drag.view,wanted[2])
-            end=(point.x/drag.view[0].width,1-point.y/drag.view[0].height)
-            delta=Vector((.35,.35,0))
-            du=delta.dot(Vector(drag.plane.horizontal))/drag.plane.sensitivity/drag.aspect
-            dv=-delta.dot(Vector(drag.plane.vertical))/drag.plane.sensitivity
-            # Synthetic corrected anchor places the deliberate diagonal's end
-            # on the intended face. The Left selection point stays at center.
-            drag.pinch_reference=end[0]-du,end[1]-dv
-            self.right_pinch(end)
-            yield from self.until(lambda:drag.face_index is not None,'Right ray tie lock '+axis)
-            assert drag.face_index==wanted[0] and drag.cursor_face==wanted[0]
-            assert tuple(self.runtime().face_outline)==tuple(wanted[3])
-            assert self.module.viewport.face_style(self.runtime())==self.module.viewport.LOCKED_COLOR
-            yield from self.until(lambda:drag.manipulation_ready,'Right cue highlight')
-            self.mapped_vector(wanted[1]*.4)
-            yield from self.until(lambda:drag.geometry is not None,'Right cue actual extrusion')
-            assert tuple(self.runtime().face_outline)==tuple(drag.geometry.outline())
-            assert drag.geometry.face_index==wanted[0]
-            self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'Right cue cancel')
-            assert not self.runtime().face_outline and geometry.snapshot(self.obj().data)==mesh_before
-            yield from self.idle()
-        print('PASS displayed Right cursor resolves ties independently of Left; highlight follows actual locked/preview face; cancel clears',flush=True)
+        self.line('extrude plane xy');yield .12
+        yield from self.start(uv=(.5,.5));self.right_pinch(event='START');yield from self.lock('EXTRUDE')
+        drag=self.runtime().drag
+        def face_uv(axis):
+            face=max(drag.face_candidates,key=lambda f:f[1]['XYZ'.index(axis)])
+            point=self.module.visibility.projected(drag.view,face[2])
+            return face,(point.x/drag.view[0].width,1-point.y/drag.view[0].height)
+        first,uv=face_uv('X');self.right_pinch(uv);yield .8
+        assert drag.dwell.face==first[0] and drag.dwell.progress>.4 and drag.face_index is None
+        # Inject a decoder rejection at the real client tick boundary. A bad or
+        # stale wire observation cannot preserve accumulated hover permission.
+        runtime=self.runtime();read=runtime.channel.read
+        runtime.channel.read=lambda sock,limit:[self.module.bridge.protocol.ProtocolError('Test stale observation')]
+        try:runtime.tick()
+        finally:runtime.channel.read=read
+        assert drag.dwell.face is None and not runtime.face_outline and drag.geometry is None
+        yield .5
+        assert drag.dwell.face==first[0] and drag.dwell.progress<.7
+        wanted,end=face_uv('Y');self.right_pinch(end);yield .15
+        assert drag.dwell.face==wanted[0] and drag.dwell.progress<.3,'new face retained old time'
+        self.right_pinch((.9,.1));yield .15
+        assert drag.dwell.face is None and not self.runtime().face_outline
+        self.right_pinch(end);yield .5
+        self.capture(right=absent());yield .1
+        assert drag.dwell.face is None and not self.runtime().face_outline
+        self.right_pinch(end);yield .15
+        assert drag.dwell.progress<.3 and drag.face_index is None
+        # A .3 second capture interruption must reset, not count toward lock.
+        self.auto_frames=False;yield .3
+        assert drag.dwell.face is None and not self.runtime().face_outline
+        self.auto_frames=True;self.right_pinch(end);yield .15
+        assert drag.dwell.progress<.3 and drag.face_index is None
+        # View changes refresh targeting rather than reuse old screen coordinates.
+        rv.view_distance+=.2;self.area.tag_redraw();yield .15
+        assert self.runtime().drag is drag and drag.dwell.progress<.3
+        wanted,end=face_uv('Y');self.right_pinch(end)
+        yield from self.until(lambda:drag.face_index is not None,'fresh hover after resets',timeout=4)
+        assert drag.face_index==wanted[0] and drag.geometry is None
+        assert tuple(self.runtime().face_outline)==tuple(wanted[3])
+        assert self.module.viewport.face_style(self.runtime())==self.module.viewport.LOCKED_COLOR
+        self.mapped_vector(wanted[1]*.4)
+        yield from self.until(lambda:drag.geometry is not None,'dwell-selected extrusion')
+        assert tuple(self.runtime().face_outline)==tuple(drag.geometry.outline())
+        assert drag.geometry.face_index==wanted[0]
+        self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'hover cancel')
+        assert not self.runtime().face_outline and geometry.snapshot(self.obj().data)==mesh_before
+        yield from self.idle()
+        print('PASS face/empty/loss/gap/navigation reset real dwell; fresh lock matches displayed polygon/preview; exact cancel',flush=True)
+
+        for release in ('Left','Right'):
+            yield from self.start(uv=(.5,.5));self.right_pinch(event='START');yield from self.lock('EXTRUDE')
+            yield .3
+            if release=='Left':self.owner_at(self.start_uv,'END')
+            else:self.right_pinch(event='END')
+            yield from self.until(lambda:self.runtime().drag is None,'early '+release+' release')
+            assert geometry.snapshot(self.obj().data)==mesh_before and not self.runtime().face_outline
+            self.owner_at(self.start_uv,'END');self.right_pinch(event='END');yield from self.idle()
+        print('PASS either release during targeting ends without geometry and clears overlays',flush=True)
 
         # Active-preview Undo cancels before undoing previous completed edit.
         self.line('move x 1 units');yield .2
@@ -647,7 +681,7 @@ class Check(helpers.Check):
 
 
 check = Check()
-check.deadline = time.monotonic()+240
+check.deadline = time.monotonic()+480
 
 
 def advance():

@@ -15,10 +15,11 @@ def invalid(reason):
 
 def measure(world, previous=None, config=None):
     previous=previous or {}
-    if world is None or len(world)!=21 or any(len(p)!=3 or any(
-            type(x) not in (float,int) or not math.isfinite(x) for x in p) for p in world):
+    used=(0,*range(4,21))  # unused thumb joints 1–3 do not invalidate useful evidence
+    if world is None or len(world)!=21 or any(world[i] is None or len(world[i])!=3 or any(
+            type(x) not in (float,int) or not math.isfinite(x) for x in world[i]) for i in used):
         return invalid('Reliable 3D hand landmarks unavailable')
-    p=[(x,-y,-z) for x,y,z in world]
+    p=[(world[i][0],-world[i][1],-world[i][2]) if i in used else None for i in range(21)]
     try:
         across=s.sub(p[5],p[17]); along=s.sub(p[9],p[0])
         width=math.sqrt(s.dot(across,across)); length=math.sqrt(s.dot(along,along))

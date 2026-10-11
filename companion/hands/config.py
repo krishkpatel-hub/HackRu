@@ -37,6 +37,9 @@ class HandConfig:
     finger_open_enter: float = .72
     finger_open_exit: float = .60
 
+    feature_smoothing_s: float = .05  # one time-based articulation/orientation filter
+    feature_max_gap_s: float = .20  # reset rather than blend across missing data
+
     record_landmarks: Optional[str] = None
     record_seconds: float = 20.
 
@@ -89,6 +92,8 @@ class HandConfig:
         if self.two_hands and self.manipulator_hand != 'Right':
             raise ValueError("clutch mode uses fixed anatomical Left selection / Right manipulation roles")
         import math
+        if not all(type(v) in (int,float) and math.isfinite(v) for v in (self.feature_smoothing_s,self.feature_max_gap_s)) or not 0<=self.feature_smoothing_s<=.2 or not 0<self.feature_max_gap_s<=.5:
+            raise ValueError('Feature smoothing must be 0–0.2 seconds; gap must be >0 and <=0.5 seconds')
         identity_values = (self.identity_confidence, self.identity_acquire_s,
                            self.identity_recover_s, self.identity_max_step, self.identity_separation)
         if not all(type(v) in (int, float) and math.isfinite(v) for v in identity_values):

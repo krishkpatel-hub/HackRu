@@ -126,49 +126,20 @@ def visible_faces(obj,context,view,ray_trees=None):
     return accepted,diagnostics
 
 
-def choose(faces,vector,mapping,previous=None,*,cursor_face=None):
-    """Magnitude chooses a visible face; sign is kept for outward/inward intent."""
-    direction=Vector(vector)
+def observability(normal,mapping):
     horizontal=Vector(mapping.horizontal);vertical=Vector(mapping.vertical)
     if mapping.axis!='NONE':
         component='XYZ'.index(mapping.axis)
         horizontal=Vector(tuple(v if i==component else 0. for i,v in enumerate(horizontal)))
         vertical=Vector(tuple(v if i==component else 0. for i,v in enumerate(vertical)))
-    motion=Vector((direction.dot(horizontal),direction.dot(vertical)))
-    if motion.length<1e-8:return None,[], 'Drag along the selected mapping axis'
-    motion.normalize();ranked=[]
-    for index,normal,center,outline in faces:
-        projected_normal=Vector((normal.dot(horizontal),normal.dot(vertical)))
-        observable=projected_normal.length
-        alignment=projected_normal.normalized().dot(motion) if observable>=.25 else 0.
-        ranked.append(dict(face=index,alignment=alignment,observable=observable,
-            world_alignment=normal.dot(direction.normalized()) if direction.length else 0.))
-    useful=[r for r in ranked if r['observable']>=.25]
-    useful.sort(key=lambda r:(-abs(r['alignment']),r['face']))
-    if not useful:return None,ranked,f'Visible normals cannot use {mapping.plane}/{mapping.axis}; choose another plane/axis or view'
-    best=useful[0];lookup={f[0]:f for f in faces}
-    margin=.10 if best['face']==previous else .12
-    if abs(best['alignment'])<.55:
-        return None,ranked,'Drag more clearly to choose a face'
-    tied=[r for r in useful if abs(best['alignment'])-abs(r['alignment'])<margin]
-    def patch(record):
-        face=lookup[record['face']]
-        return (tuple(round(v,6) for v in face[2]),
-                tuple(sorted(tuple(round(v,6) for v in p) for p in face[3])))
-    if len({patch(r) for r in tied})>1 or any(lookup[r['face']][1].dot(lookup[best['face']][1])<.999 for r in tied):
-        # Cursor is secondary: it cannot override clear directional intent,
-        # a hidden/unobservable face, or inadequate directional alignment.
-        cue=next((r for r in tied if r['face']==cursor_face and abs(r['alignment'])>=.55),None)
-        if cue is None:return None,ranked,'Drag more clearly to choose a face'
-        return lookup[cue['face']],ranked,'Right cursor resolves tied directions'
-    return lookup[best['face']],ranked,''
+    return math.hypot(normal.dot(horizontal),normal.dot(vertical))
 
 
 def cursor_face(faces,view,uv,trees):
     """Ray under the displayed corrected Right cursor; reject occlusion/edge ties.
 
     Cache the evaluated scene BVHs alongside visible faces. The controller's
-    existing scene/view invalidation cancels before these can become stale.
+    scene/view invalidation refreshes targeting and cancels locked operations.
     """
     origin,direction=viewport.ray(view,uv)
     hits=[]
@@ -192,13 +163,3 @@ def cursor_face(faces,view,uv,trees):
         closest=a+edge*max(0.,min(1.,(pixel-a).dot(edge)/edge.length_squared))
         if (pixel-closest).length<3:return None
     return index
-
-
-def tentative(faces,scores,previous=None):
-    """An explicitly ambiguous highlight is not permission to deform or lock."""
-    usable=[r for r in scores if r['observable']>=.25 and abs(r['alignment'])>=.55]
-    if not usable:return None
-    best=max(usable,key=lambda r:(abs(r['alignment']),-r['face']))
-    retained=next((r for r in usable if r['face']==previous and abs(best['alignment'])-abs(r['alignment'])<.12),None)
-    index=(retained or best)['face']
-    return next(f for f in faces if f[0]==index)

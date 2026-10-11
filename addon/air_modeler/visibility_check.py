@@ -22,16 +22,17 @@ def sequence():
                 normal=obj.data.polygons[index].normal.copy();center=obj.data.polygons[index].center.copy()
                 rv.view_rotation=normal.to_track_quat('Z','Y');rv.view_location=center;rv.view_distance=8;rv.view_perspective=projection
                 area.tag_redraw();yield .2
-                view=viewport.mapping(context);faces,records=vis.visible_faces(obj,context,view)
+                view=viewport.mapping(context);trees=[];faces,records=vis.visible_faces(obj,context,view,trees)
                 assert index in [f[0] for f in faces],(projection,shape,index,records)
                 assert all(f[1].dot(normal)>.04 for f in faces)
                 axis='XYZ'[max(range(3),key=lambda i:abs(normal[i]))]
                 plane='XY' if axis in 'XY' else 'XZ'
                 mapping=planes.automatic(view[1].view_matrix.inverted().col[0].xyz,view[1].view_matrix.inverted().col[1].xyz,plane,axis)
-                for sign in (1,-1):
-                    chosen,scores,error=vis.choose(faces,normal*sign,mapping)
-                    assert chosen and chosen[0]==index,(shape,index,scores,error)
-            print('PASS',projection,shape,'each visible side, hidden exclusion, same face for signed intent',flush=True)
+                assert vis.observability(normal,mapping)>=.25
+                assert vis.cursor_face(faces,view,(.5,.5),trees)==index
+                # Polygon center lies on its triangulation seam: one identity.
+                assert vis.cursor_face(faces,view,(.502,.5),trees)==index
+            print('PASS',projection,shape,'each visible side, hidden exclusion, displayed center ray and same polygon across triangle seam',flush=True)
             bpy.data.objects.remove(obj,do_unlink=True)
 
     # World normals must agree with transformed face tangents under nonuniform
@@ -53,10 +54,7 @@ def sequence():
             pixel=vis.projected(view,center);uv=pixel.x/view[0].width,1-pixel.y/view[0].height
             assert vis.cursor_face(faces,view,uv,trees)==polygon.index,(shape,scale,polygon.index,uv,vis.cursor_face(faces,view,uv,trees),[(f[0],tuple(f[2])) for f in faces])
             mapping=planes.automatic(view[1].view_matrix.inverted().col[0].xyz,view[1].view_matrix.inverted().col[1].xyz)
-            mapped=Vector(mapping.horizontal)*normal.dot(Vector(mapping.horizontal))+Vector(mapping.vertical)*normal.dot(Vector(mapping.vertical))
-            for sign in (1,-1):
-                chosen,scores,error=vis.choose(faces,mapped*sign,mapping)
-                assert chosen and chosen[0]==polygon.index,(scale,polygon.index,scores,error)
+            assert vis.observability(normal,mapping)>=.25
         bpy.data.objects.remove(obj,do_unlink=True)
     print('PASS rotated nonuniform/reflected world normals, transformed tangents and signed projected selection',flush=True)
 
@@ -90,39 +88,11 @@ def sequence():
     rv.view_distance=10;area.tag_redraw();yield .2
     assert not vis.view_unchanged(context,view)
     print('PASS fresh face identities after rotation/extrusion and viewport navigation invalidation',flush=True)
-    # Competing visible orthogonal normals must stay ambiguous, while a normal
-    # excluded by the plane gets an explicit unobservable diagnostic.
-    fake=[(0,Vector((1,0,0)),Vector(),()),(1,Vector((0,1,0)),Vector(),())]
     mapping=planes.automatic((1,0,0),(0,1,0),'XY')
-    assert vis.choose(fake,(1,1,0),mapping)[0] is None
-    assert vis.choose([(2,Vector((0,0,1)),Vector(),())],(1,0,0),mapping)[0] is None
-    parallel=[(0,Vector((1,0,0)),Vector((1,0,0)),()),(1,Vector((1,0,0)),Vector((1,1,0)),())]
-    assert vis.choose(parallel,(1,0,0),mapping)[0] is None
-    # These normals differ in 3D but are indistinguishable in XY. The old
-    # full-world score (.6 versus 1) arbitrarily preferred the second face.
-    projected_tie=[(0,Vector((.6,0,.8)),Vector(),()),(1,Vector((1,0,0)),Vector(),())]
-    chosen,scores,_=vis.choose(projected_tie,(1,0,0),mapping)
-    assert chosen is None and all(abs(r['alignment']-1)<1e-6 for r in scores)
-    assert vis.tentative(projected_tie,scores)[0]==0
-    assert vis.tentative(projected_tie,scores,previous=1)[0]==1
-    for index in (0,1):
-        assert vis.choose(projected_tie,(1,0,0),mapping,cursor_face=index)[0][0]==index
-    assert vis.choose(projected_tie,(1,0,0),mapping,cursor_face=99)[0] is None
-    assert vis.choose(fake,(1,.1,0),mapping,cursor_face=1)[0][0]==0,'cursor overrode clear direction'
-    assert vis.choose(parallel,(1,0,0),mapping,cursor_face=1)[0][0]==1
-    assert vis.choose(fake,(.1,1,0),mapping,cursor_face=0)[0][0]==1
-    _,near,_=vis.choose(fake,(1,.98,0),mapping)
-    assert vis.tentative(fake,near,previous=1)[0]==1
-    _,clear,_=vis.choose(fake,(1,.1,0),mapping)
-    assert vis.tentative(fake,clear,previous=1)[0]==0
-    print('PASS Right ray cue breaks only eligible ties; clear direction/occlusion priority; tentative retention and change',flush=True)
-    chosen,scores,_=vis.choose(fake,(1,.1,0),mapping)
-    assert chosen and chosen[0]==0 and vis.tentative(fake,scores)[0]==0
-    degenerate=[(2,Vector((.1,0,.995)).normalized(),Vector(),())]
-    chosen,scores,_=vis.choose(degenerate,(1,0,0),mapping)
-    assert chosen is None and vis.tentative(degenerate,scores) is None
-    print('PASS projected-direction tie rejects false winner; tentative highlight cannot lock; clear/degenerate evidence',flush=True)
-    print('PASS materially ambiguous, distinct parallel patches and unobservable mappings remain pending',flush=True)
+    assert vis.observability(Vector((0,0,1)),mapping)==0
+    assert vis.observability(Vector((1,0,0)),mapping)==1
+    assert vis.cursor_face(fresh,view,(.99,.01),[]) is None
+    print('PASS incompatible normal mapping reports zero observability; no alternative face selection',flush=True)
     bpy.ops.wm.quit_blender()
 
 steps=sequence();deadline=0

@@ -140,17 +140,48 @@ All flags are JSON booleans, never 0/1. Invalid identity requires four null coor
 
 The producer uses confidence and spatial continuity and protects Right's identity path throughout a Left pinch. Overlap/uncertain crossing invalidates observations rather than transferring ownership. Actual anatomical labels in the mirrored pipeline remain a physical acceptance requirement; synthetic identity tests do not establish that result. Exact openness math, pose thresholds and limitations are in [the current handoff](clutch_handoff.md).
 
-Blender alone owns arbitration: IDLE → SELECTED_READY → DRAGGING → release gating → IDLE. Only a fresh **Left START** selects, using that event's corrected coordinates. It captures object, Left UUID and original baseline only; face eligibility and automatic direction-based choice occur only after Right EXTRUDE activation. Left movement has no classifier input or preview displacement. Right START cannot select. Every START is remembered per session even when blocked; held misses, duplicate boundaries and completed IDs cannot queue another transaction.
+Blender alone owns arbitration: IDLE → SELECTED_READY → DRAGGING → release gating → IDLE. Only a fresh **Left START** selects, using that event's corrected coordinates. It captures object, Left UUID and original baseline only; face eligibility and Right-cursor hover targeting occur only after Right EXTRUDE activation. Left movement has no classifier input or preview displacement. Right START cannot select. Every START is remembered per session even when blocked; held misses, duplicate boundaries and completed IDs cannot queue another transaction.
 
-Right open-palm translation competes for MOVE, relative 3D palm orientation for ROTATE, and openness change for SCALE through normalized thresholds, persistence, dominance and hysteresis. A developing isolated pinch reserves EXTRUDE intent; whole-fist closure does not. A fresh eligible Right START after an observed Right-open state **after/at Left selection** can activate extrusion. Right already pinched (including START in the same selection capture) must reopen and repinch. Opening after reserved/held pinch rearms and resets references without accidentally scaling. Tool, references, required identities, mapping and baseline lock on activation; EXTRUDE face locks only after stable directional evidence. Crossing the intent threshold itself has zero displacement. No mid-preview tool change or Left deformation is permitted.
+Right open-palm translation competes for MOVE, relative 3D palm orientation for ROTATE, and openness change for SCALE through normalized thresholds, persistence, dominance and hysteresis. A developing isolated pinch reserves EXTRUDE intent; whole-fist closure does not. A fresh eligible Right START after an observed Right-open state **after/at Left selection** can activate extrusion. Right already pinched (including START in the same selection capture) must reopen and repinch. Opening after reserved/held pinch rearms and resets references without accidentally scaling. Tool, references, required identities, mapping and baseline lock on activation; EXTRUDE face locks only after two seconds of fresh valid same-face hover; mapping and current Right drag coordinates are captured again at face lock. Crossing the intent threshold itself has zero displacement. No mid-preview tool change or Left deformation is permitted.
 
 MOVE/ROTATE/SCALE finish only on the matching observed Left END with valid Right input. Fist contact/Right END during SCALE is only a shape observation, not completion. EXTRUDE finishes on matching valid Right END with frozen final Right coordinates while Left is valid, or matching Left END while Right remains valid. First completion clears the transaction and makes the other END inert. Right-first completion retains the Left gate; Left-first retains the Right gate; both observed releases are needed before another Left selection. Required releases may arrive in one capture or separately. A START in a gate-clearing capture is consumed, never queued. Unchanged/ready/zero-distance completion restores temporary state with no geometry edit or Undo entry.
 
 Both Left clutch and Right controller are required. Missing identity/invalid required pose/measurement immediately freezes; sustained loss or stale input for 0.5 seconds restores baseline once and gates both observed releases. Short recovery rebases Right references without jumping. Release in the same capture as required-hand recovery cancels rather than committing stale geometry. A fist is valid SCALE input. Tracking loss never fabricates END. Escape/cancel/disconnect/context change/file load/disable/shutdown restore through the same transaction cleanup. Undo cancels preview before undoing the prior completed edit. Idle cancel/disconnect doesn't invent a hand gate, preserving typed-only precision.
 
+### Extrusion hover timing (0.13.0, no schema change)
+
+Within the existing DRAGGING wire phase, Blender owns TARGETING → DWELLING → LOCKED
+→ DRAGGING substates. Only the matching held Left clutch and Right isolated pinch
+with valid measurements authorize dwell. `DwellConfig.duration = 2.0` and
+`DwellConfig.max_gap = 0.20` in `addon/air_modeler/extrusion_input.py` define the
+single dwell duration and maximum capture/receipt gap. Both monotonic capture time
+and receiver time must cover the duration; effective progress is the lesser elapsed
+time. Delivery age must also be within ±0.20 seconds of the established session
+clock offset. Duplicate/out-of-order observations fail existing validation; timer
+callbacks cannot advance or complete dwell. No queued gap or compressed replay
+can manufacture two seconds. Existing session and gesture-ID protection remains.
+
+Cursor travel inside one polygon preserves progress, including across its internal
+triangles. A different polygon restarts at zero. Empty/occluded/edge/ineligible hits,
+required-hand invalidity/absence and observation gaps clear progress/highlight.
+Projection or occluder changes during targeting refresh and reset; after lock they
+cancel through existing safety checks. The normal, face and new Right reference
+lock together with zero ordinary deformation. Fixed amount applies next valid frame.
+Either matching release before lock ends with no edit/Undo. After lock, the existing
+frozen release coordinates, completion orders, exact restoration and Undo apply.
+
+Observation field meanings remain compatible. Orientation/fingers/openness now pass
+one time-based filter (`HandConfig.feature_smoothing_s = 0.05`), after raw geometry
+and orientation-jump checks. Quaternion shortest-arc interpolation and finger EMA
+use elapsed time; absence/invalidity or gaps over `feature_max_gap_s = 0.20` clear
+history. Pose gates remain raw/hysteretic, so a fist never inherits a filtered old
+permission to EXTRUDE. No additional cursor/palm translation filter is applied.
+No per-joint confidence is assumed. Unused thumb joints 1–3 may be missing, while
+wrist, thumb tip and required finger/palm geometry must remain valid.
+
 ## Precision and one-operation overrides
 
-Command action `precision` requires `id`, `action`, `mode`, `value`, plus `axis` only for MOVE/ROTATE. Values must be finite JSON numbers (not bool): rotation ±360 degrees, movement ±100 world units, scale 0.1–10 inclusive, extrusion >0.00001 and ≤4 world units. Axes are X/Y/Z. Exact object commands apply once to the currently selected eligible object while IDLE. EXTRUDE arms outward-normal distance for the next explicit Left object-selection plus fresh Right-pinch/directional face-selection operation: no hover edit and no additional hand displacement. Invalid/conflicting commands during SELECTED_READY or DRAGGING are rejected, never queued. Session/UUID dedup and typed/committed-only speech remain unchanged.
+Command action `precision` requires `id`, `action`, `mode`, `value`, plus `axis` only for MOVE/ROTATE. Values must be finite JSON numbers (not bool): rotation ±360 degrees, movement ±100 world units, scale 0.1–10 inclusive, extrusion >0.00001 and ≤4 world units. Axes are X/Y/Z. Exact object commands apply once to the currently selected eligible object while IDLE. EXTRUDE arms outward-normal distance for the next explicit Left object-selection plus fresh Right-pinch/two-second same-face hover operation. Targeting does not edit geometry. The armed amount applies on the next valid observation after face lock, independently of targeting travel, without additional displacement. Invalid/conflicting commands during SELECTED_READY or DRAGGING are rejected, never queued. Session/UUID dedup and typed/committed-only speech remain unchanged.
 
 Whole phrases include `rotate x 45 degrees`, `move z -2 units`, `scale by 1.5`, `extrude 0.5 units`, and `extend .5 units`. Bare `rotate [x|y|z]`, `scale`, `move`, `extrude` and `extend` arm one operation subject to the same target/identity locks and required gestures. Mode/plane commands do not immediately alter geometry. Completion/cancellation clears the override.
 

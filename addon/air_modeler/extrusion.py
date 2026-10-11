@@ -282,34 +282,49 @@ def commit_vector(obj, face_index, world_vector, config=CONFIG):
     return True
 
 
-def candidates(obj):
-    """Eligible baseline faces including hidden ones, without a raycast/mutation."""
+def candidate_report(obj):
+    """Enumerate current eligible faces, with a reason for every omitted face.
+
+    Occlusion and direction are deliberately irrelevant here: the face browser
+    can expose a back/bottom face. Blender's explicitly hidden edit faces remain
+    unavailable. Use the live BMesh when editing, never original primitive indices
+    or the potentially stale Object Mode polygon cache.
+    """
     validate_object(obj)
-    linear=obj.matrix_world.to_3x3()
-    normal_matrix=linear.inverted().transposed()
-    result=[]
-    if obj.mode == 'EDIT':
-        bm = bmesh.from_edit_mesh(obj.data)
+    normal_matrix = obj.matrix_world.to_3x3().inverted().transposed()
+    result, reasons = [], {}
+    owned = obj.mode != 'EDIT'
+    bm = bmesh.new() if owned else bmesh.from_edit_mesh(obj.data)
+    try:
+        if owned:
+            bm.from_mesh(obj.data)
         bm.faces.ensure_lookup_table(); bm.faces.index_update()
         for face in bm.faces:
-            if face.hide: continue
-            try: normal = validate_face(bm, face.index).normal.copy()
-            except ValueError: continue
+            if face.hide:
+                reasons[face.index] = 'Face is hidden in Edit Mode; unhide it before starting extrusion'
+                continue
+            try:
+                normal = validate_face(bm, face.index).normal.copy()
+            except ValueError as exc:
+                reasons[face.index] = str(exc)
+                continue
             outline = tuple(obj.matrix_world @ v.co for v in face.verts)
+            # Inverse-transpose transforms an outward half-space normal even for
+            # reflected objects. Multiplying by determinant sign would invert it.
             result.append((face.index, (normal_matrix @ normal).normalized(),
                            sum(outline, Vector()) / len(outline), outline))
-        if not result: raise ValueError('No eligible visible editable triangular/quad face')
-        return result
-    for polygon in obj.data.polygons:
-        try:
-            normal,vertices=face_info(obj,polygon.index)
-        except ValueError:
-            continue
-        outline=tuple(obj.matrix_world@v for v in vertices)
-        normal=(normal_matrix@normal).normalized()
-        center=sum(outline,Vector())/len(outline)
-        result.append((polygon.index,normal,center,outline))
-    if not result: raise ValueError('No eligible outer supporting triangular/quad face')
+    finally:
+        if owned:
+            bm.free()
+    return result, reasons
+
+
+def candidates(obj):
+    """Compatibility wrapper for consumers requiring at least one candidate."""
+    result, reasons = candidate_report(obj)
+    if not result:
+        details = '; '.join(dict.fromkeys(reasons.values())) or 'mesh has no faces'
+        raise ValueError('No eligible extrusion face: ' + details)
     return result
 
 

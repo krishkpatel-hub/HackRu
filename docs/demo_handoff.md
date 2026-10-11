@@ -1,13 +1,13 @@
-# Air Modeler 0.15.0 combined demo handoff
+# Air Modeler 0.16.0 combined demo handoff
 
-Install/restart and private key handling: [current engineering handoff](edit_mode_handoff.md#installation-and-launch).
+Install/restart and private key handling: [current engineering handoff](face_access_handoff.md#install-restart-and-launch).
 One-action acceptance record: [physical checklist](physical_acceptance.md).
 All current physical results are **NOT RUN**. Complete readiness and safety checks
 before rehearsing this sequence. No automated or standalone voice result establishes
 a combined live pass.
 
 Camera 0; microphone 0 (MacBook Air Microphone); existing `.venv`; worker
-`preview=False`. Source and packaged add-on 0.15.0 must match. From the intended
+`preview=False`. Source and packaged add-on 0.16.0 must match. From the intended
 3D viewport, Connect and require Blender Connected, companion READY, actual Left
 and Right observations, and **VOICE LISTENING — CREATE/REMOVE ONLY** separately. A listening process
 or PTT ARMED alone proves neither tracking nor voice readiness.
@@ -33,8 +33,13 @@ a fresh session starts; do not repeat a command until READY/LISTENING returns.
    remain held, verify **Edit Mode / Face Select** on this object only. Move the
    displayed Right cursor inside the desired eligible face, independently of the
    face hit by Left; the actual selected face must follow the cyan candidate.
+   To expose opposite/bottom faces, navigate before lock. Alternatively use viewport
+   **Previous Face / Next Face** or **[ / ]**, inspect Face i of N/world normal and
+   dashed magenta occluded outline, then **Enter / Confirm / dwell**. Incoming hover
+   never changes a browser choice; **H** returns to hover targeting.
    Cyan countdown must remain on that polygon for 2.0 seconds, then turn orange
-   with zero ordinary deformation. Move only after lock: outward, hold, reverse
+   with zero ordinary deformation. Follow the outward arrow; near head-on AUTO uses
+   upward = outward / downward = inward. Move only after lock: outward, hold, reverse
    through zero, then a small bounded inward shortening. Release either pinch to
    commit once and return to **Object Mode with the object selected**, then open both to rearm. For a mapping rejection, cancel and choose
    a compatible plane/axis before retrying; never force an unsupported face.
@@ -43,7 +48,9 @@ a fresh session starts; do not repeat a command until READY/LISTENING returns.
    Each completed edit has its own native Undo.
 7. With both hands released, say “remove cube” to remove only the selected tagged
    cube; use Blender Undo to restore it.
-8. In separate transactions test Cancel, brief and sustained loss, disconnect/reconnect,
+8. Repeat on all six cube faces with one Undo after each. Then leave an extrusion
+   committed, reselect and browse a newly created cap/side; each edit undoes separately.
+9. In separate transactions test Cancel, brief and sustained loss, disconnect/reconnect,
    typed fallback and clean shutdown. Pending hover creates no geometry or Undo.
 
 ## Recovery and shutdown
@@ -64,7 +71,7 @@ a fresh session starts; do not repeat a command until READY/LISTENING returns.
 
 ## Evidence boundaries
 
-Current automated results/limits are in the [0.15 Edit Mode handoff](edit_mode_handoff.md). The original
+Current automated results/limits are in the [0.16 face-access handoff](face_access_handoff.md). The original
 67-test/78-subtest baseline and older live reports are preserved in the
 [historical demo handoff](demo_handoff_0.5.md). Teammate V's report at
 `104924d9c38be26dc8459346be08645a62a17b3e` covers standalone 11-command speech,

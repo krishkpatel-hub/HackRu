@@ -45,8 +45,9 @@ def mesh_stamp(mesh):
 
 
 def view_unchanged(context,view):
-    current=viewport.mapping(context)
-    return (current[0].width==view[0].width and current[0].height==view[0].height
+    current=viewport.extrusion_mapping(context) if hasattr(view[0],"cursor_rect") else viewport.mapping(context)
+    return (viewport.cursor_bounds(current[0])==viewport.cursor_bounds(view[0])
+        and current[0].width==view[0].width and current[0].height==view[0].height
         and current[1].is_perspective==view[1].is_perspective
         and all(abs(a-b)<1e-6 for x,y in zip(current[1].perspective_matrix,view[1].perspective_matrix) for a,b in zip(x,y)))
 
@@ -96,7 +97,7 @@ def visible_faces(obj,context,view,ray_trees=None):
     if space.shading.type=='WIREFRAME' or space.shading.show_xray:
         raise ValueError('Extrusion visibility requires a solid viewport with X-Ray off')
     if len(obj.data.polygons)>256:raise ValueError('Too many extrusion faces; use a simple cube/prism mesh')
-    faces=extrusion.candidates(obj)
+    faces,_=extrusion.candidate_report(obj)
     with bpy.context.temp_override(**context):
         graph=bpy.context.evaluated_depsgraph_get()
     trees=[];total=0;polygons=0
@@ -143,8 +144,9 @@ def visible_faces(obj,context,view,ray_trees=None):
             record['reason']='projected area below 16 pixels²';diagnostics.append(record);continue
         for point in samples(outline):
             pixel=projected(view,point)
-            if pixel is None or not (0<=pixel.x<=view[0].width and 0<=pixel.y<=view[0].height):continue
-            uv=pixel.x/view[0].width,1-pixel.y/view[0].height
+            left,bottom,right,top=viewport.cursor_bounds(view[0])
+            if pixel is None or not (left<=pixel.x<=right and bottom<=pixel.y<=top):continue
+            uv=viewport.cursor_uv(view[0],pixel)
             origin,direction=viewport.ray(view,uv)
             distance=(point-origin).dot(direction)
             if distance<=0:continue
@@ -167,31 +169,37 @@ def observability(normal,mapping):
     return math.hypot(normal.dot(horizontal),normal.dot(vertical))
 
 
-def cursor_face(faces,view,uv,trees):
-    """Ray under the displayed corrected Right cursor; reject occlusion/edge ties.
+def cursor_hit(faces,view,uv,trees,reasons=None):
+    """Nearest actual ray hit, without visibility-sample or axis preselection.
 
-    Cache the evaluated scene BVHs alongside visible faces. The controller's
-    scene/view invalidation refreshes targeting and cancels locked operations.
+    Hover never chooses through an occluder; explicit browsing is separate.
+    Border ambiguity resets dwell instead of borrowing another face's time.
     """
     origin,direction=viewport.ray(view,uv)
     hits=[]
     for target,tree in trees:
         point,normal,index,distance=tree.ray_cast(origin,direction)
         if point is not None and distance>=0:hits.append((distance,target,index))
-    if not hits:return None
+    if not hits:return None,'No face under Right cursor; navigate or use Previous / Next Face.','MISS'
     hits.sort();distance,target,index=hits[0]
-    if not target:return None
-    if any(not target and abs(depth-distance)<=max(1e-5,distance*1e-6) for depth,target,_ in hits):return None
+    if not target or any(not target and abs(depth-distance)<=max(1e-5,distance*1e-6) for depth,target,_ in hits):
+        return None,'Another object occludes this face; navigate or explicitly browse.','OCCLUDED'
     face=next((f for f in faces if f[0]==index),None)
-    if face is None:return None
-    # A ray exactly on a shared edge has no unique face. Require the displayed
-    # cursor to be at least three pixels inside the polygon, not on its border.
+    if face is None:
+        return None,f'Face {index} unsupported: '+(reasons or {}).get(index,'hidden or not an eligible planar supporting triangle/quad'),'UNSUPPORTED'
+    if face[1].dot(-direction)<=0:
+        return None,'Back surface from this view; navigate outside the mesh or explicitly browse.','HIDDEN'
     pixel=Vector(viewport.pixels(view[0],uv))
     outline=[projected(view,point) for point in face[3]]
-    if any(point is None for point in outline):return None
+    if any(point is None for point in outline):return None,'Face crosses the view clipping plane; navigate or browse.','CLIPPED'
     for a,b in zip(outline,outline[1:]+outline[:1]):
         edge=b-a
-        if edge.length_squared<1e-9:return None
+        if edge.length_squared<1e-9:return None,'Face projects edge-on; navigate or browse.','EDGE'
         closest=a+edge*max(0.,min(1.,(pixel-a).dot(edge)/edge.length_squared))
-        if (pixel-closest).length<3:return None
-    return index
+        if (pixel-closest).length<3:
+            return None,'Face boundary: move inside a polygon; hover time reset.','EDGE'
+    return index,'','HIT'
+
+
+def cursor_face(faces,view,uv,trees):
+    return cursor_hit(faces,view,uv,trees)[0]

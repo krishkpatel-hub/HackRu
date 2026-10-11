@@ -189,6 +189,29 @@ MOVE/ROTATE/SCALE finish only on the matching observed Left END with valid Right
 
 Both Left clutch and Right controller are required. Missing identity/invalid required pose/measurement immediately freezes; sustained loss or stale input for 0.5 seconds restores baseline once and gates both observed releases. Short recovery rebases Right references without jumping. Release in the same capture as required-hand recovery cancels rather than committing stale geometry. A fist is valid SCALE input. Tracking loss never fabricates END. Escape/cancel/disconnect/context change/file load/disable/shutdown restore through the same transaction cleanup. Undo cancels preview before undoing the prior completed edit. Idle cancel/disconnect doesn't invent a hand gate, preserving typed-only precision.
 
+### Extrusion face access and AUTO mapping (0.16.0, no wire change)
+
+Blender now separates HOVER and explicit BROWSE targeting locally. Previous/Next
+Face enumerates current eligible Edit BMesh polygons, independent of camera
+occlusion. Enter / Confirm / dwell authorizes a new two-second observation-driven
+dwell; incoming hover cannot replace a browsed candidate. H returns to hover.
+Viewport navigation before lock resets dwell and refreshes targeting; after lock
+it retains the existing cancellation behavior. No browser action mutates geometry
+or generates an Undo operator. Ordinary hover still requires the nearest visible
+ray hit and never silently selects through the mesh.
+
+Unconstrained AUTO captures a projected world-normal scalar control at lock, with
+upward-outward fallback for near-zero projection. It preserves the extrusion gain,
+deadband and bounds; explicit plane/axis and numeric controls remain separate.
+The Right extrusion cursor alone excludes overlapping sidebar/toolbar pixels.
+Left selection, other gestures, hand observation schemas and smoothing are unchanged.
+
+Wire `phase=DRAGGING` remains the coarse transaction-owned phase for compatibility.
+The user-facing sidebar/overlay and status message display the coherent extrusion
+substage instead (TARGETING / DWELLING / LOCKED / DRAGGING), not a contradictory
+second phase label. CREATE/REMOVE remain rejected throughout the owned transaction.
+See [controls, limits and verification](face_access_handoff.md).
+
 ### Controller-owned Edit Mode (0.15.0, no wire change)
 
 A deliberate fresh Right extrusion pinch under a valid Left object clutch enters

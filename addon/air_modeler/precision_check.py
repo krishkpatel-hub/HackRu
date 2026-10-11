@@ -48,7 +48,7 @@ class Check(helpers.Check):
         return center,normal
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,15,0)
+        assert self.module.bl_info['version']==(0,16,0)
         self.line('create cube'); yield .3
         self.name=self.window.view_layer.objects.active.name
         self.obj().rotation_euler=(.3,-.2,.4); self.obj().scale=(1.2,.7,1.5)

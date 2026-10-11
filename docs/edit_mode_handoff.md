@@ -1,3 +1,7 @@
+> Historical 0.15 implementation and evidence. Current release **0.16.0** adds
+> [face browsing and face-normal AUTO mapping](face_access_handoff.md).
+> Use that handoff for the current ZIP, controls, installation and live checks.
+
 # Air Modeler 0.15.0 — editable face targeting and extrusion
 
 Continue from `fc8f94306815739f5832d97cab320a037d7e4395` (0.14.0), on

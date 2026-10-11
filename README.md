@@ -1,6 +1,6 @@
 # Air Modeler — HackRU
 
-## Current interaction: 0.15.0
+## Current interaction: 0.16.0
 
 Left thumb/index pinch selects and holds the **object only**; Left movement is inert.
 Right open-palm translation controls MOVE, whole-hand closing/reopening controls
@@ -8,25 +8,38 @@ SCALE, palm orientation controls free/three-axis ROTATE, and an isolated thumb/i
 pinch enters actual Blender Edit Mode for EXTRUDE targeting. Active tools stay locked until completion/cancel.
 Typed overrides, numeric commands, optional push-to-talk and typed fallback remain. Microphone speech is CREATE/REMOVE only.
 
-**Extrusion: Left holds the object → fresh Right pinch enters Edit Mode/Face Select →
-Right cursor hovers over a visible face for two seconds → drag → release returns to Object Mode.**
-Only the target enters Edit Mode; previous component selections clear. Right may choose
-a different face from the Left selection hit. The hovered face is actually selected. Cyan shows the candidate and countdown; orange
-means locked. Finding/hovering never changes geometry. At lock, the drag reference
-resets to the current cursor, so ordinary extrusion starts at zero. Later dragging
-controls signed distance on that same face. Either valid release completes once and
-returns to Object Mode with the object selected. The second release only rearms.
-Fixed-distance extrusion uses the same dwell, then applies its armed amount on the
-next valid observation. No extra click, gesture or voice command is required.
+**Extrusion: Left holds the object → fresh Right pinch enters Edit Mode / Face Select
+→ choose a face → dwell two seconds → drag → release returns to Object Mode.**
+Right hover targets the nearest eligible visible face in the unobscured viewport;
+the sidebar no longer consumes part of the extrusion cursor's usable range. Other
+gesture cursor mappings are unchanged. Orbit/pan/zoom or use standard unmodified
+numpad views before lock to expose other sides; view changes reset dwell.
 
-Moving inside the same face preserves progress. Another face, empty/occluded area,
-invalid/missing tracking, a capture/delivery gap over 200 ms, or viewport navigation
-resets it. Fresh observations authorize lock; cached timers cannot. Sustained
-0.5-second loss cancels. View changes after lock cancel safely. The cursor and
-raycast share the connected viewport's coordinates; hidden faces cannot be chosen.
+For hidden/opposite/bottom faces, use the compact **Previous Face / Next Face**
+buttons in the viewport (or **[ / ]**). The browser lists every currently eligible
+mesh face, including new caps and side faces, with **Face i of N** and its world
+normal. A dashed magenta outline explicitly identifies an occluded browsed face.
+Hover frames cannot replace this choice. Press **Enter** or **Confirm / dwell**:
+hold both pinches with valid tracking for a fresh two-second cyan dwell. Browsing
+alone never locks or deforms. **H / Hover targeting** returns to normal hover.
+
+Orange locks the selected face and a fresh zero-distance reference. AUTO now uses
+a signed distance along that face's normal, driven by the projected outward arrow.
+For a nearly head-on normal, the displayed stable fallback is **up = outward,
+down = inward**. The mapping freezes at lock; targeting travel adds no distance.
+Explicit planes/axes and numeric distances retain their semantics, with actionable
+feedback for incompatible constraints. The whole boundary distinguishes neighboring
+coplanar faces. Sidebar and overlay show the same extrusion stage.
+
+Either valid release commits once and returns to Object Mode with the target
+selected; the second release only rearms. Early/zero release adds no edit or Undo.
+Changing a hover candidate, leaving the mesh, invalid tracking, or capture/delivery
+gaps over 200 ms reset dwell. Border ambiguity never counts toward lock. Sustained
+0.5-second loss cancels; navigation after lock cancels safely. No timeout or global
+hand filter was relaxed. Each meaningful completion has one native Undo.
 
 Recognition retains the 0.12 arbitration thresholds and gesture assignments. One
-50 ms elapsed-time filter now smooths validated palm orientation and four-finger
+50 ms elapsed-time filter still smooths validated palm orientation and four-finger
 articulation, leaving MOVE/cursor filtering unchanged. Missing unused thumb joints
 no longer invalidate useful geometry; missing required joints still fail closed.
 Generated noisy-landmark comparisons and limits are in the handoff; no new physical
@@ -39,12 +52,12 @@ each meaningful completion creates one native Undo step. Targeting, zero-distanc
 release and temporary mode/selection changes create none. Cancel/loss restores the
 original mesh and returns to Object Mode when the original context remains valid.
 
-[0.15 Edit Mode implementation, installation and verified results](docs/edit_mode_handoff.md) ·
+[0.16 face access, controls, installation and verified results](docs/face_access_handoff.md) ·
 [Existing controls and limits](docs/clutch_handoff.md) ·
 [protocol and REMOVE addition](docs/protocol.md) · [physical acceptance](docs/physical_acceptance.md) ·
 [combined demo sequence](docs/demo_handoff.md).
 
-**All 0.15 physical acceptance is NOT RUN.** Prior reports of SCALE→ROTATE confusion
+**All 0.16 physical acceptance is NOT RUN.** Prior reports of SCALE→ROTATE confusion
 and unpredictable extrusion remain recorded. Automated checks and historical
 standalone voice success are separate evidence. Sponsor attribution is unconfirmed.
 
@@ -122,9 +135,9 @@ The value is hidden and absent from shell history. Launch Blender separately fro
 .venv/bin/python tools/package_addon.py
 ```
 
-ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.15.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.15.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
+ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.16.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.16.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
 
-This laptop's confirmed camera is **0**, microphone **0 (MacBook Air Microphone)**. The exact launch command with those indices is in the [current handoff](docs/edit_mode_handoff.md#installation-and-launch). The variables below are for rediscovery if devices change. Choose **one** command:
+This laptop's confirmed camera is **0**, microphone **0 (MacBook Air Microphone)**. The exact launch command with those indices is in the [current handoff](docs/face_access_handoff.md#installation-and-launch). The variables below are for rediscovery if devices change. Choose **one** command:
 
 ```sh
 # Hands plus typed commands, microphone disabled (no API key needed)

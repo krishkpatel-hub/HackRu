@@ -189,7 +189,13 @@ class Check(helpers.Check):
         self.area.tag_redraw()
         return center, normal
 
-    def right_pinch(self, uv=(.5,.5), event='NONE', gid=None):
+    def right_pinch(self, uv=None, event='NONE', gid=None):
+        if uv is None:
+            # Right's extrusion cursor uses the unobscured viewport rectangle;
+            # Left and other gestures still use the full WINDOW mapping.
+            view=self.module.viewport.extrusion_mapping(self.runtime().context())
+            pixel=self.module.visibility.projected(view,self.position())
+            uv=self.module.viewport.cursor_uv(view[0],pixel)
         if event=='START': self.right_gid=gid or str(uuid4())
         self.capture(right=observed(uv,open=event=='END',pinching=event!='END',
             gesture_id=gid or self.right_gid,event=event,openness=.8,fingers=[.2,1.,1.,1.],open_palm=False,
@@ -241,7 +247,7 @@ class Check(helpers.Check):
         return uv
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,15,0)
+        assert self.module.bl_info['version']==(0,16,0)
         self.window.scene.cursor.location=(0,0,0)
         self.line('create cube')
         yield from self.until(lambda:len(self.objects())==1,'spawn cube')
@@ -503,12 +509,13 @@ class Check(helpers.Check):
         yield .8
         assert drag.face_index is None and drag.geometry is None
         progress=drag.dwell.progress
-        self.right_pinch((.51,.5));yield .3
+        shifted=(drag.pinch_reference[0]+.01,drag.pinch_reference[1])
+        self.right_pinch(shifted);yield .3
         assert drag.dwell.progress>progress and drag.face_index is None,'same-face movement reset dwell'
         yield from self.until(lambda:drag.face_index is not None,'moving within face completes dwell',timeout=4)
         yield .1
         assert drag.geometry is None and geometry.snapshot(self.obj().data)==mesh_before,'hover travel jumped'
-        assert drag.pinch_reference==(.51,.5)
+        assert drag.pinch_reference==shifted
         self.mapped_vector((0,0,.02),raw=True);yield .12
         assert drag.geometry is None,'sub-deadband jitter created geometry'
         self.mapped_vector((0,0,.6),raw=True)
@@ -615,7 +622,7 @@ class Check(helpers.Check):
         def face_uv(axis):
             face=max(drag.face_candidates,key=lambda f:f[1]['XYZ'.index(axis)])
             point=self.module.visibility.projected(drag.view,face[2])
-            return face,(point.x/drag.view[0].width,1-point.y/drag.view[0].height)
+            return face,self.module.viewport.cursor_uv(drag.view[0],point)
         first,uv=face_uv('X');self.right_pinch(uv);yield .8
         assert drag.dwell.face==first[0] and drag.dwell.progress>.4 and drag.face_index is None
         assert [f.index for f in drag.edit.bmesh(self.obj()).faces if f.select]==[first[0]]

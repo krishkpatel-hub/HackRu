@@ -3,7 +3,7 @@
 bl_info = {
     "name": "Air Modeler",
     "author": "HackRU Team",
-    "version": (0, 15, 0),
+    "version": (0, 16, 0),
     "blender": (5, 2, 0),
     "location": "View3D > Sidebar > Air Modeler",
     "description": "Hand cursor, picking, undoable transforms, single-face extrusion and primitive creation",

@@ -25,7 +25,7 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         state, message, error, running = bridge.ui_state()
         box.label(text=f"Bridge: {state}")
         box.label(text="Left selects; Right controls")
-        box.label(text="Extrude: Edit → hover 2s → drag → Object")
+        box.label(text="Extrude: hover / browse → dwell 2s → drag")
         if bridge._runtime is not None:
             for line in textwrap.wrap(bridge._runtime.mode_label(), width=40):
                 box.label(text=line)
@@ -35,7 +35,12 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
             if bridge._runtime.hand_status:
                 for line in textwrap.wrap(bridge._runtime.hand_status, width=40):
                     box.label(text=line)
-            box.label(text=f"Phase: {bridge._runtime.phase}")
+            box.label(text=f"Stage: {bridge._runtime.display_stage()}")
+            drag=bridge._runtime.drag
+            if drag and drag.mode=='EXTRUDE' and hasattr(drag,'dwell'):
+                box.label(text="Viewport: Previous / Next Face buttons")
+                box.label(text="[ / ] browse; Enter dwell; H hover")
+                box.label(text="Navigate before lock; release → Object")
             box.label(text=f"Hover: {bridge._runtime.hovered or '—'}")
             box.label(text="Tracking" if bridge._runtime.tracking else "No hand")
         row = box.row(align=True)

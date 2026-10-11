@@ -1,4 +1,4 @@
-> Current release is **0.15.0**. See [Edit Mode installation and verification](edit_mode_handoff.md).
+> Current release is **0.16.0**. See [face-access installation and verification](face_access_handoff.md).
 > The 0.14 voice contract and historical results below remain valid records;
 > all current physical checks remain NOT RUN.
 
@@ -45,7 +45,7 @@ and the existing local TCP pipeline; no voice worker imports `bpy`.
 Save a separate rehearsal scene first, preserving existing `.blend` files. Stop
 the old companion and disconnect Blender. Update from
 `/Users/krishpatel/HackRu/dist/air_modeler.zip`, restart Blender to clear old modules,
-and confirm add-on **0.15.0**. Use Object Mode and Global Undo. Installation detail:
+and confirm add-on **0.16.0**. Use Object Mode and Global Undo. Installation detail:
 [current setup](clutch_handoff.md#install-and-launch).
 
 If the authorized replacement key is not in this Terminal's environment, enter it

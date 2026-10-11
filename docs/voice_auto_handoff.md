@@ -1,3 +1,7 @@
+> Current release is **0.15.0**. See [Edit Mode installation and verification](edit_mode_handoff.md).
+> The 0.14 voice contract and historical results below remain valid records;
+> all current physical checks remain NOT RUN.
+
 # Air Modeler 0.14.0: automatic CREATE/REMOVE voice
 
 Normal companion launches automatically listen through the existing ElevenLabs
@@ -41,7 +45,7 @@ and the existing local TCP pipeline; no voice worker imports `bpy`.
 Save a separate rehearsal scene first, preserving existing `.blend` files. Stop
 the old companion and disconnect Blender. Update from
 `/Users/krishpatel/HackRu/dist/air_modeler.zip`, restart Blender to clear old modules,
-and confirm add-on **0.14.0**. Use Object Mode and Global Undo. Installation detail:
+and confirm add-on **0.15.0**. Use Object Mode and Global Undo. Installation detail:
 [current setup](clutch_handoff.md#install-and-launch).
 
 If the authorized replacement key is not in this Terminal's environment, enter it
@@ -87,7 +91,7 @@ restores unfinished previews. Check camera off/prompt returned, then
 `unset ELEVENLABS_API_KEY`. The owner must revoke the previously exposed key;
 revocation and sponsor attribution remain unconfirmed.
 
-## Automated evidence and preserved work
+## Historical 0.14 automated evidence and preserved work
 
 Baseline: `a9e7e9b7a94d2887de990d22ca5028c3ac022a57`, add-on 0.13.0. Backup ZIP:
 `dist/air_modeler-baseline-0.13.0.zip`, SHA-256
@@ -98,7 +102,7 @@ or scene file changed. Envelope v1 and hand profile v3 remain; REMOVE and option
 status `message` are consistently added to the one shared validator and packaged
 copy. Install the matching companion and ZIP.
 
-Current Python suite: **369 tests + 78 subtests passed**, `/tmp/air14-python.log`.
+Historical 0.14 Python suite: **369 tests + 78 subtests passed**, `/tmp/air14-python.log`.
 Coverage includes all ten phrase variants, normalization, conversation/unsupported
 speech, partials, duplicate versus intentional repeats, default hands-free startup,
 PTT and typed compatibility, voice-failure isolation, session-bound callback disposal,

@@ -114,7 +114,7 @@ The integrated runner also supports `--mic --push-to-talk`: local `/talk` and `/
 ## Automatic microphone policy and removal (0.14.0)
 
 The envelope stays v1 and hand profile stays `left_clutch_v3`. REMOVE and optional
-status `message` are additions; install matching 0.14 companion/ZIP. The packager
+status `message` are additions; install matching current companion/ZIP. The packager
 copies the one shared validator unchanged. Microphone commands use an explicit
 whole-phrase allowlist in `parse_microphone_command`; the reusable typed parser
 retains modes, precision, Undo, Cancel and aliases. Speech executes timestamped
@@ -188,6 +188,25 @@ Right open-palm translation competes for MOVE, relative 3D palm orientation for 
 MOVE/ROTATE/SCALE finish only on the matching observed Left END with valid Right input. Fist contact/Right END during SCALE is only a shape observation, not completion. EXTRUDE finishes on matching valid Right END with frozen final Right coordinates while Left is valid, or matching Left END while Right remains valid. First completion clears the transaction and makes the other END inert. Right-first completion retains the Left gate; Left-first retains the Right gate; both observed releases are needed before another Left selection. Required releases may arrive in one capture or separately. A START in a gate-clearing capture is consumed, never queued. Unchanged/ready/zero-distance completion restores temporary state with no geometry edit or Undo entry.
 
 Both Left clutch and Right controller are required. Missing identity/invalid required pose/measurement immediately freezes; sustained loss or stale input for 0.5 seconds restores baseline once and gates both observed releases. Short recovery rebases Right references without jumping. Release in the same capture as required-hand recovery cancels rather than committing stale geometry. A fist is valid SCALE input. Tracking loss never fabricates END. Escape/cancel/disconnect/context change/file load/disable/shutdown restore through the same transaction cleanup. Undo cancels preview before undoing the prior completed edit. Idle cancel/disconnect doesn't invent a hand gate, preserving typed-only precision.
+
+### Controller-owned Edit Mode (0.15.0, no wire change)
+
+A deliberate fresh Right extrusion pinch under a valid Left object clutch enters
+actual Edit Mode on that one object, enables Face Select and clears component
+selection. The active editable BMesh supplies hover raycasts and face identity;
+Right may select a different face from the Left hit. The existing two-second dwell
+and signed mapping below are unchanged. Ordinary lock is zero-distance.
+
+Blender's main thread owns the mode, wrapped BMesh and temporary mesh copy.
+CREATE/REMOVE and tool changes reject during targeting/preview, never queue.
+The first valid completion returns to Object Mode and adopts the prepared result
+through one native Undo operator. Temporary mode/selection transitions create no
+Undo. The second release only rearms. Early/zero release restores without an edit.
+Cancel/loss restores exact baseline geometry; valid original contexts return to
+Object Mode. Lost/deleted contexts are resolved by IDs without forcing a mode
+switch on a different object. These details are entirely local to Blender: the
+v1 envelope, left_clutch_v3 observations, UUID validation, deduplication and
+session/reconnect protections remain unchanged. See [ownership and evidence](edit_mode_handoff.md).
 
 ### Extrusion hover timing (0.13.0, no schema change)
 

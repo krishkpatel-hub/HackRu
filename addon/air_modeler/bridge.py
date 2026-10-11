@@ -6,7 +6,7 @@ import socket
 import time
 from types import SimpleNamespace
 
-from . import viewport, transforms, extrusion, intent, planes, visibility, signed_extrusion, extrusion_input
+from . import viewport, transforms, extrusion, intent, planes, visibility, signed_extrusion, extrusion_input, edit_extrusion
 from .selection import Selector
 import math
 
@@ -228,7 +228,9 @@ class Client:
         if self.clutch:
             _release_hands = set(self.release_hands)
         obj = self.target()
-        if self.drag and self.drag.geometry is not None:
+        if self.drag and getattr(self.drag, 'edit', None) is not None:
+            self.drag.edit.restore(obj)
+        elif self.drag and self.drag.geometry is not None:
             self.drag.geometry.restore(obj)
         if obj is not None:
             transforms.apply_matrix(obj, self.drag.baseline, self.drag.scale_signs)
@@ -485,6 +487,8 @@ class Client:
             if drag.right_id is None:
                 raise RuntimeError('Extrusion requires a fresh isolated Right pinch')
             self.validate_extrusion_baseline()
+            drag.edit = edit_extrusion.EditTransaction(obj, self.context())
+            drag.expected_stamp = visibility.mesh_stamp(obj.data)
             drag.dwell=extrusion_input.FaceDwell()
             drag.pinch_reference=(right['u'],right['v'])
             drag.pinch_delta=(0.,0.)
@@ -494,13 +498,15 @@ class Client:
         drag.last_right = dict(right)
         self.phase = 'DRAGGING'
         _last_error = None
-        _message = 'EXTRUDE targeting; hover Right cursor on a face' if mode=='EXTRUDE' else f'{mode} locked; release Left to commit'
+        _message = 'EDIT MODE; hover Right cursor on a face for 2 seconds' if mode=='EXTRUDE' else f'{mode} locked; release Left to commit'
 
     def reset_targeting(self, message='Hover the right cursor over a face.'):
         drag=self.drag
         if drag and drag.mode=='EXTRUDE' and hasattr(drag,'dwell') and drag.face_index is None:
             drag.dwell.reset();drag.cursor_face=None
             drag.extrusion_stage='EXTRUDE TARGETING'
+            if getattr(drag, 'edit', None) is not None:
+                drag.edit.select(self.target(), None)
             self.face_outline=()
             self.target_message=message
 
@@ -511,7 +517,7 @@ class Client:
         drag.face_candidates,drag.visibility_records=visibility.visible_faces(obj,self.context(),drag.view,drag.ray_trees)
         drag.occluders=visibility.scene_stamp(self.context(),obj)
         drag.visibility_checked=time.monotonic()
-        drag.expected_stamp=drag.source_stamp
+        drag.expected_stamp=visibility.mesh_stamp(obj.data)
         space=self.context()['area'].spaces.active
         drag.shading=(space.shading.type,space.shading.show_xray)
         view_rotation=drag.view[1].view_matrix.inverted()
@@ -584,6 +590,7 @@ class Client:
                     self.reset_targeting('Observation stale; hover again with fresh tracking.')
                     return
                 drag.cursor_face=index
+                drag.edit.select(obj, index)
                 self.face_outline=outline
                 drag.extrusion_stage='EXTRUDE DWELLING'
                 self.target_message=f'Face {index}; Hold on this face: {drag.dwell.progress:.1f} / {drag.dwell.config.duration:.1f} s'
@@ -603,7 +610,7 @@ class Client:
             amount=drag.fixed_distance if drag.fixed_distance is not None else extrusion_input.distance(drag.raw_distance,drag.distance_band)
             drag.extrusion_stage='EXTRUDE DRAGGING' if abs(amount)>extrusion.CONFIG.negligible_distance else 'EXTRUDE LOCKED'
             if drag.geometry is None and abs(amount)>extrusion.CONFIG.negligible_distance:
-                drag.geometry=signed_extrusion.SignedPreview(obj,drag.face_index,extrusion.CONFIG)
+                drag.geometry=edit_extrusion.SignedEditPreview(drag.edit,obj,drag.face_index,extrusion.CONFIG)
             if drag.geometry:
                 drag.geometry.update(amount)
                 amount=drag.geometry.amount
@@ -644,7 +651,13 @@ class Client:
                     distance=geometry.amount,use_signed=True,
                     maximum_distance=geometry.config.maximum_distance,
                     negligible_distance=geometry.config.negligible_distance)
-            geometry.restore(obj)
+            # Adopt the tested editable result, rather than extruding a second
+            # time. Restore baseline/Object Mode before the one Undo operator.
+            prepared = drag.edit.finish(obj, keep=changed)
+            if changed:
+                arguments['prepared_id'] = prepared
+        elif operation == 'EXTRUDE' and getattr(drag, 'edit', None) is not None:
+            drag.edit.restore(obj)
         elif operation and operation != 'EXTRUDE':
             final = obj.matrix_world.copy()
             changed = transforms.changed(drag.baseline,final,drag.config.matrix_tolerance)
@@ -659,10 +672,13 @@ class Client:
         self.phase = 'NEEDS_RELEASE' if _needs_release else 'IDLE'
         self.completed_mode()
         if changed:
-            with bpy.context.temp_override(**self.context()):
-                op = bpy.ops.air_modeler.commit_extrusion if operation == 'EXTRUDE' else bpy.ops.air_modeler.commit_transform
-                if op('EXEC_DEFAULT',True,**arguments) != {'FINISHED'}:
-                    raise RuntimeError('Commit failed; baseline restored')
+            try:
+                with bpy.context.temp_override(**self.context()):
+                    op = bpy.ops.air_modeler.commit_extrusion if operation == 'EXTRUDE' else bpy.ops.air_modeler.commit_transform
+                    if op('EXEC_DEFAULT',True,**arguments) != {'FINISHED'}:
+                        raise RuntimeError('Commit failed; baseline restored')
+            finally:
+                if operation == 'EXTRUDE': edit_extrusion.discard(arguments.get('prepared_id'))
         _last_error = None
         _message = (f'{operation} committed once' if changed else 'Unchanged release creates no edit') + ('; release '+', '.join(sorted(self.release_hands)) if self.release_hands else '')
 
@@ -789,7 +805,7 @@ class Client:
         self.diagnostic_at=now
         d=self.drag;r=payload['hands']['Right'];l=payload['hands']['Left']
         import json
-        print('AIR_DIAG '+json.dumps(dict(version='0.14.0',phase=self.phase,
+        print('AIR_DIAG '+json.dumps(dict(version='0.15.0',phase=self.phase,
             age=round(now-(self.frame_origin+payload['t']),3),
             identities={h:(v['valid'],v['confidence']) for h,v in payload['hands'].items()},
             clutch=l['pinching'],fingers=r['fingers'],openness=r['openness'],
@@ -894,6 +910,8 @@ class Client:
     def validate_extrusion_baseline(self, force=False):
         """Refresh unlocked targeting or cancel; never reuse changed face indices."""
         drag,obj=self.drag,self.target()
+        if getattr(drag, 'edit', None) is not None:
+            drag.edit.validate(obj, self.context())
         extrusion.validate_object(obj)
         if obj.data!=drag.source_mesh and (drag.source_mesh.users or drag.source_mesh.use_fake_user):
             raise RuntimeError('Extrusion baseline gained another owner; release and reselect')
@@ -923,10 +941,12 @@ class Client:
         if self.drag:
             context = self.context()
             with bpy.context.temp_override(**context):
-                if bpy.context.mode != "OBJECT":
+                owned_edit = getattr(self.drag, 'edit', None)
+                if bpy.context.mode != "OBJECT" and not (owned_edit and bpy.context.mode == 'EDIT_MESH'):
                     raise RuntimeError("Left Object Mode; drag cancelled")
             obj = self.target()
-            if obj is None or not viewport.eligible(obj, context) or (self.drag.geometry is not None and obj.data != self.drag.geometry.mesh) or (self.drag.geometry is None and hasattr(self.drag, 'source_mesh') and obj.data != self.drag.source_mesh):
+            expected_mesh = owned_edit.mesh if owned_edit else getattr(self.drag, 'source_mesh', None)
+            if obj is None or not viewport.eligible(obj, context) or (self.drag.geometry is not None and obj.data != self.drag.geometry.mesh) or (self.drag.geometry is None and expected_mesh is not None and obj.data != expected_mesh):
                 self.cancel_drag()
                 self.error("Drag target disappeared or became unsupported")
             elif self.clutch and getattr(self.drag,'mode',None)=='EXTRUDE':

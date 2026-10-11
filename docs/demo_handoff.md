@@ -1,13 +1,13 @@
-# Air Modeler 0.14.0 combined demo handoff
+# Air Modeler 0.15.0 combined demo handoff
 
-Install/restart and private key handling: [current engineering handoff](clutch_handoff.md#install-and-launch).
+Install/restart and private key handling: [current engineering handoff](edit_mode_handoff.md#installation-and-launch).
 One-action acceptance record: [physical checklist](physical_acceptance.md).
 All current physical results are **NOT RUN**. Complete readiness and safety checks
 before rehearsing this sequence. No automated or standalone voice result establishes
 a combined live pass.
 
 Camera 0; microphone 0 (MacBook Air Microphone); existing `.venv`; worker
-`preview=False`. Source and packaged add-on 0.14.0 must match. From the intended
+`preview=False`. Source and packaged add-on 0.15.0 must match. From the intended
 3D viewport, Connect and require Blender Connected, companion READY, actual Left
 and Right observations, and **VOICE LISTENING — CREATE/REMOVE ONLY** separately. A listening process
 or PTT ARMED alone proves neither tracking nor voice readiness.
@@ -30,11 +30,13 @@ a fresh session starts; do not repeat a command until READY/LISTENING returns.
 4. Reselect, close Right fingers toward a fist to shrink, hold, reopen to enlarge;
    release Left. SCALE must not turn into ROTATE or EXTRUDE.
 5. Reselect with Right open, then isolate Right thumb/index pinch. While both pinches
-   remain held, move the displayed Right cursor inside the desired eligible face.
+   remain held, verify **Edit Mode / Face Select** on this object only. Move the
+   displayed Right cursor inside the desired eligible face, independently of the
+   face hit by Left; the actual selected face must follow the cyan candidate.
    Cyan countdown must remain on that polygon for 2.0 seconds, then turn orange
    with zero ordinary deformation. Move only after lock: outward, hold, reverse
    through zero, then a small bounded inward shortening. Release either pinch to
-   commit once, then open both to rearm. For a mapping rejection, cancel and choose
+   commit once and return to **Object Mode with the object selected**, then open both to rearm. For a mapping rejection, cancel and choose
    a compatible plane/axis before retrying; never force an unsupported face.
 6. Typed `undo` or Blender Undo once per completed edit, waiting each time: extrusion, scale,
    rotation, then movement. Leave the spawned cube selected for the removal test.
@@ -46,7 +48,8 @@ a fresh session starts; do not repeat a command until READY/LISTENING returns.
 
 ## Recovery and shutdown
 
-- Escape/typed `cancel` restores an unfinished preview and clears the overlay. Open
+- Escape/typed `cancel` restores an unfinished preview, clears the overlay and
+  returns to Object Mode when the original context exists. Open
   both required hands to rearm. Spoken Cancel is ignored; use typed Cancel or Escape.
 - Missing/invalid tracking immediately clears an unfinished dwell. A >200 ms capture
   gap resets it; cached timers never lock. During deformation brief loss freezes
@@ -61,7 +64,7 @@ a fresh session starts; do not repeat a command until READY/LISTENING returns.
 
 ## Evidence boundaries
 
-Current automated results/limits are in the [voice handoff](voice_auto_handoff.md). The original
+Current automated results/limits are in the [0.15 Edit Mode handoff](edit_mode_handoff.md). The original
 67-test/78-subtest baseline and older live reports are preserved in the
 [historical demo handoff](demo_handoff_0.5.md). Teammate V's report at
 `104924d9c38be26dc8459346be08645a62a17b3e` covers standalone 11-command speech,

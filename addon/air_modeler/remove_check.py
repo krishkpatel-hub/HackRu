@@ -23,7 +23,7 @@ class Check(helpers.Check):
         self.window.view_layer.objects.active=self.window.view_layer.objects.get(names[0]) if names else None
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,14,0)
+        assert self.module.bl_info['version']==(0,15,0)
         self.window.scene.cursor.location=(0,0,0)
         # All shape tags, changed names, UUID dedup and independent native Undo.
         for shape in ('cube','sphere','cylinder','prism'):

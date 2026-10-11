@@ -1,6 +1,7 @@
 """Cached viewport-visible extrusion faces. No render-camera dependency."""
 import math
 import bpy
+import bmesh
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from . import viewport,extrusion
@@ -9,13 +10,33 @@ from . import viewport,extrusion
 def mesh_stamp(mesh):
     # Includes supported attributes/material slots so an externally edited
     # baseline cannot be committed using a stale preview of its old attributes.
+    if mesh.is_editmode:
+        # Mesh RNA hides custom-data collections during Edit Mode. Read an
+        # owned snapshot of the actual wrapped BMesh, retaining the source ID.
+        owned = bmesh.from_edit_mesh(mesh).copy()
+        snapshot = bpy.data.meshes.new('Air edit validation')
+        try:
+            owned.to_mesh(snapshot)
+            stamp = mesh_stamp(snapshot)
+            return (mesh.as_pointer(), *stamp[1:-1],
+                    tuple(m.as_pointer() if m else None for m in mesh.materials))
+        finally:
+            owned.free()
+            bpy.data.meshes.remove(snapshot)
     attributes=[]
     for attribute in mesh.attributes:
+        if attribute.name.startswith('.select_'):
+            continue  # Component selection is temporary UI state, not geometry.
         field={'FLOAT_VECTOR':'vector','FLOAT2':'vector','FLOAT_COLOR':'color','BYTE_COLOR':'color'}.get(attribute.data_type,'value')
         values=[]
         for item in attribute.data:
             value=getattr(item,field,None)
-            values.append(tuple(value) if hasattr(value,'__iter__') else value)
+            # mathutils.Vector supports Python's sequence protocol without an
+            # __iter__ attribute. Always detach sequence values from RNA before
+            # the temporary Mesh is freed (and before later native mutations).
+            try:value=tuple(value)
+            except TypeError:pass
+            values.append(value)
         attributes.append((attribute.name,attribute.domain,attribute.data_type,tuple(values)))
     return (mesh.as_pointer(),tuple(tuple(v.co) for v in mesh.vertices),
             tuple(tuple(e.vertices) for e in mesh.edges),
@@ -82,6 +103,17 @@ def visible_faces(obj,context,view,ray_trees=None):
     for other in context['view_layer'].objects:
         if other.type not in ('MESH','CURVE','SURFACE','FONT','META') or not other.visible_get(view_layer=context['view_layer'],viewport=space):continue
         if len(trees)>=128:raise ValueError('Visibility scene budget exceeded; isolate the demo objects')
+        if other == obj and obj.mode == 'EDIT':
+            # Actual editable face ordering, not evaluated Object Mode indices.
+            bm = bmesh.from_edit_mesh(obj.data)
+            bm.verts.index_update(); bm.faces.index_update()
+            vertices = [obj.matrix_world @ v.co for v in bm.verts]
+            face_loops = [tuple(v.index for v in f.verts) for f in bm.faces]
+            tree = BVHTree.FromPolygons(vertices, face_loops)
+            trees.append(tree)
+            if ray_trees is not None: ray_trees.append((True, tree))
+            total += len(vertices); polygons += len(face_loops)
+            continue
         evaluated=other.evaluated_get(graph);mesh=evaluated.to_mesh()
         try:
             total+=len(mesh.vertices);polygons+=len(mesh.polygons)

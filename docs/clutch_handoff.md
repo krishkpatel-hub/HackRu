@@ -1,6 +1,7 @@
-> Current release **0.14.0** adds [automatic CREATE/REMOVE voice](voice_auto_handoff.md).
+> Current release **0.15.0** adds [controller-owned Edit Mode extrusion](edit_mode_handoff.md).
+> [Automatic CREATE/REMOVE voice](voice_auto_handoff.md) is preserved.
 > The 0.13 dwell/observation implementation below is preserved. Its automated numbers
-> are the historical baseline; current results are in the voice handoff. All current
+> are the historical baseline; current results are in the Edit Mode handoff. All current
 > physical checks remain NOT RUN. No main merge or scene edits.
 
 # Air Modeler 0.13.0: two-second face hover and smoother observations
@@ -237,19 +238,19 @@ must revoke the previously exposed credential; replacements enter privately only
 
 ## Install and launch
 
-For current voice/removal acceptance, use [0.14 setup and live test](voice_auto_handoff.md).
+For current installation and evidence, use the [0.15 Edit Mode handoff](edit_mode_handoff.md).
 
 Existing environment: Python 3.12.15, Blender 5.2.2 LTS/Python 3.13.13. No dependencies
-reinstalled. Rebuilt ZIP and source are **0.14.0**; the `left_clutch_v3` hand schema is unchanged.
+reinstalled. Rebuilt ZIP and source are **0.15.0**; the `left_clutch_v3` hand schema is unchanged.
 The prior 0.13 inspection found installed **0.12.0 on disk**; the loaded version
 has not been verified for this release. The prior companion was stopped for those
 tests. Current checks use separate factory-startup processes; the user's Blender
 session and all scene files remain untouched.
 
-1. Save a NEW `/Users/krishpatel/HackRu/rehearsal_0_14.blend` copy. Preserve every older scene.
+1. Save a NEW `/Users/krishpatel/HackRu/rehearsal_0_15.blend` copy. Preserve every older scene.
 2. Stop any companion; Blender Disconnect, disable/remove the old Air Modeler add-on.
 3. Fully quit/reopen Blender. Preferences → Add-ons → Install from Disk →
-   `/Users/krishpatel/HackRu/dist/air_modeler.zip`. Enable and confirm **0.14.0**.
+   `/Users/krishpatel/HackRu/dist/air_modeler.zip`. Enable and confirm **0.15.0**.
 4. Fully quit/reopen again to clear cached modules. Open the new rehearsal scene,
    Object Mode, Global Undo on, Solid shading and X-Ray off. Use one connected viewport.
 5. In Terminal, if needed, enter the replacement key with hidden input:
@@ -269,7 +270,7 @@ cd /Users/krishpatel/HackRu && /Users/krishpatel/HackRu/.venv/bin/python -m comp
 
 Camera **0**, microphone **0 MacBook Air Microphone** were user-confirmed. Integrated
 hands worker keeps `preview=False`. Launch Blender separately from the key-bearing
-shell. Connect in intended viewport's N sidebar. Confirm companion **0.14.0**, profile
+shell. Connect in intended viewport's N sidebar. Confirm companion **0.15.0**, profile
 v3, Connected/READY, actual hand observations with correct anatomical identities,
 and **VOICE LISTENING — CREATE/REMOVE ONLY** separately. Process started is not services connected.
 `status`/`help` remain available; hands-free listening is automatic. Optional PTT starts muted. `quit`/Ctrl+C stops workers;

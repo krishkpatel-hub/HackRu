@@ -1,18 +1,21 @@
 # Air Modeler — HackRU
 
-## Current interaction: 0.14.0
+## Current interaction: 0.15.0
 
 Left thumb/index pinch selects and holds the **object only**; Left movement is inert.
 Right open-palm translation controls MOVE, whole-hand closing/reopening controls
 SCALE, palm orientation controls free/three-axis ROTATE, and an isolated thumb/index
-pinch enters EXTRUDE targeting. Active tools stay locked until completion/cancel.
+pinch enters actual Blender Edit Mode for EXTRUDE targeting. Active tools stay locked until completion/cancel.
 Typed overrides, numeric commands, optional push-to-talk and typed fallback remain. Microphone speech is CREATE/REMOVE only.
 
-**Extrusion: Right-pinch, hover the displayed Right cursor inside the desired visible
-face for two seconds, then drag.** Cyan shows the candidate and countdown; orange
+**Extrusion: Left holds the object → fresh Right pinch enters Edit Mode/Face Select →
+Right cursor hovers over a visible face for two seconds → drag → release returns to Object Mode.**
+Only the target enters Edit Mode; previous component selections clear. Right may choose
+a different face from the Left selection hit. The hovered face is actually selected. Cyan shows the candidate and countdown; orange
 means locked. Finding/hovering never changes geometry. At lock, the drag reference
 resets to the current cursor, so ordinary extrusion starts at zero. Later dragging
-controls signed distance on that same face. Either valid release completes once.
+controls signed distance on that same face. Either valid release completes once and
+returns to Object Mode with the object selected. The second release only rearms.
 Fixed-distance extrusion uses the same dwell, then applies its armed amount on the
 next valid observation. No extra click, gesture or voice command is required.
 
@@ -32,13 +35,16 @@ tracking improvement has yet been verified.
 Signed geometry retains outward extrusion and bounded inward shortening of supported
 convex cube/prism faces. Inward is not a cavity or arbitrary concave-mesh operation.
 A default 2-unit cube permits 1.98 inward units. Cancel restores the baseline;
-each meaningful completion creates one native Undo step, targeting alone creates none.
+each meaningful completion creates one native Undo step. Targeting, zero-distance
+release and temporary mode/selection changes create none. Cancel/loss restores the
+original mesh and returns to Object Mode when the original context remains valid.
 
-[Controls, limits, installation and verified results](docs/clutch_handoff.md) ·
+[0.15 Edit Mode implementation, installation and verified results](docs/edit_mode_handoff.md) ·
+[Existing controls and limits](docs/clutch_handoff.md) ·
 [protocol and REMOVE addition](docs/protocol.md) · [physical acceptance](docs/physical_acceptance.md) ·
 [combined demo sequence](docs/demo_handoff.md).
 
-**All 0.14 physical acceptance is NOT RUN.** Prior reports of SCALE→ROTATE confusion
+**All 0.15 physical acceptance is NOT RUN.** Prior reports of SCALE→ROTATE confusion
 and unpredictable extrusion remain recorded. Automated checks and historical
 standalone voice success are separate evidence. Sponsor attribution is unconfirmed.
 
@@ -116,9 +122,9 @@ The value is hidden and absent from shell history. Launch Blender separately fro
 .venv/bin/python tools/package_addon.py
 ```
 
-ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.14.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.14.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
+ZIP: `/Users/krishpatel/HackRu/dist/air_modeler.zip`, actual add-on version **0.15.0**. Install this version with the matching companion. Record the companion revision with `git rev-parse HEAD`. In Blender, disconnect and disable/remove an older Air Modeler install, quit and restart Blender, then Preferences → Add-ons → Install from Disk, select this ZIP and enable Air Modeler. Confirm 0.15.0. Restart after updating to discard cached modules. Enable Global Undo. Open a separate rehearsal scene manually; do not overwrite `demo.blend` or clear an existing working scene.
 
-This laptop's confirmed camera is **0**, microphone **0 (MacBook Air Microphone)**. Exact launch commands with those indices are in the [current handoff](docs/clutch_handoff.md). The variables below are for rediscovery if devices change. Choose **one** command:
+This laptop's confirmed camera is **0**, microphone **0 (MacBook Air Microphone)**. The exact launch command with those indices is in the [current handoff](docs/edit_mode_handoff.md#installation-and-launch). The variables below are for rediscovery if devices change. Choose **one** command:
 
 ```sh
 # Hands plus typed commands, microphone disabled (no API key needed)

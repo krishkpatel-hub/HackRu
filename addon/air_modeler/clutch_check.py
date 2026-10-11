@@ -133,6 +133,7 @@ class Check(helpers.Check):
     def idle(self):
         self.capture(observed(self.uv()), observed())
         yield from self.until(lambda: self.runtime().phase == 'IDLE', 'observed open rearm')
+        assert self.obj().mode == 'OBJECT', 'completed/cancelled gesture left Edit Mode active'
 
     def start(self, owner='Left', right=None, simultaneous=False, uv=None):
         self.owner = owner
@@ -210,6 +211,9 @@ class Check(helpers.Check):
         assert self.runtime().drag.face_index is None and not self.runtime().face_outline
         self.right_pinch(event='START')
         yield from self.lock('EXTRUDE')
+        assert self.obj().mode == 'EDIT'
+        assert tuple(self.window.scene.tool_settings.mesh_select_mode) == (False,False,True)
+        assert self.window.view_layer.objects.active == self.obj()
         assert self.runtime().drag.geometry is None
         yield .9
         assert self.runtime().drag is not None,self.module.bridge.ui_state()
@@ -237,7 +241,7 @@ class Check(helpers.Check):
         return uv
 
     def sequence(self):
-        assert self.module.bl_info['version']==(0,14,0)
+        assert self.module.bl_info['version']==(0,15,0)
         self.window.scene.cursor.location=(0,0,0)
         self.line('create cube')
         yield from self.until(lambda:len(self.objects())==1,'spawn cube')
@@ -560,7 +564,7 @@ class Check(helpers.Check):
         print('PASS locked-face outward/zero/inward reversal, clean shortening, both release orders and exact native Undo',flush=True)
 
 
-        for reason in ('cancel','escape','loss','stale','view','mesh','attributes'):
+        for reason in ('cancel','escape','loss','stale','view','mesh','attributes','mode'):
             yield from self.arm_extrusion('extrude plane xz axis z',index)
             self.mapped_vector((0,0,-.3));yield from self.until(lambda:self.runtime().drag.amount<-.29,reason+' inward preview')
             original=self.runtime().drag.source_mesh
@@ -576,8 +580,10 @@ class Check(helpers.Check):
                 self.owner_at(self.start_uv,'END');yield .12
                 self.auto_frames=True
             elif reason=='view':self.area.spaces.active.region_3d.view_distance+=1;self.area.tag_redraw()
-            elif reason=='mesh':self.obj().data.vertices[0].co.x+=.1;self.obj().data.update()
-            else:self.obj().data.polygons[0].material_index+=1
+            elif reason=='mesh':self.runtime().drag.edit.bmesh(self.obj()).verts[0].co.x+=.1
+            elif reason=='mode':
+                with self.override():bpy.ops.object.mode_set('EXEC_DEFAULT',False,mode='OBJECT')
+            else:self.runtime().drag.edit.bmesh(self.obj()).faces[0].material_index+=1
             yield from self.until(lambda:self.runtime().drag is None,reason+' restores baseline')
             assert self.obj().data==original and geometry.snapshot(original)==mesh_before
             yield from self.idle()
@@ -596,14 +602,24 @@ class Check(helpers.Check):
         print('PASS off-object targeting has no candidate, time or geometry',flush=True)
 
         self.line('extrude plane xy');yield .12
-        yield from self.start(uv=(.5,.5));self.right_pinch(event='START');yield from self.lock('EXTRUDE')
+        # Left explicitly hits +X. Right must independently choose +Y below.
+        view=self.module.viewport.mapping(self.runtime().context())
+        left_face=max(self.obj().data.polygons,key=lambda p:p.normal.x)
+        point=self.module.visibility.projected(view,self.obj().matrix_world@left_face.center)
+        left_uv=point.x/view[0].width,1-point.y/view[0].height
+        origin,direction=self.module.viewport.ray(view,left_uv)
+        left_index=self.module.extrusion.ray_hit(self.obj(),origin,direction)[1]
+        yield from self.start(uv=left_uv);self.right_pinch(event='START');yield from self.lock('EXTRUDE')
         drag=self.runtime().drag
+        assert self.obj().mode=='EDIT' and tuple(self.window.scene.tool_settings.mesh_select_mode)==(False,False,True)
         def face_uv(axis):
             face=max(drag.face_candidates,key=lambda f:f[1]['XYZ'.index(axis)])
             point=self.module.visibility.projected(drag.view,face[2])
             return face,(point.x/drag.view[0].width,1-point.y/drag.view[0].height)
         first,uv=face_uv('X');self.right_pinch(uv);yield .8
         assert drag.dwell.face==first[0] and drag.dwell.progress>.4 and drag.face_index is None
+        assert [f.index for f in drag.edit.bmesh(self.obj()).faces if f.select]==[first[0]]
+        assert drag.edit.bmesh(self.obj()).faces.active.index==first[0]
         # Inject a decoder rejection at the real client tick boundary. A bad or
         # stale wire observation cannot preserve accumulated hover permission.
         runtime=self.runtime();read=runtime.channel.read
@@ -617,6 +633,7 @@ class Check(helpers.Check):
         assert drag.dwell.face==wanted[0] and drag.dwell.progress<.3,'new face retained old time'
         self.right_pinch((.9,.1));yield .15
         assert drag.dwell.face is None and not self.runtime().face_outline
+        assert not any(f.select for f in drag.edit.bmesh(self.obj()).faces)
         self.right_pinch(end);yield .5
         self.capture(right=absent());missing_frame=self.capture_id
         # Assert the reset after this observation reaches the consumer, not
@@ -641,16 +658,22 @@ class Check(helpers.Check):
         wanted,end=face_uv('Y');self.right_pinch(end)
         yield from self.until(lambda:drag.face_index is not None,'fresh hover after resets',timeout=4)
         assert drag.face_index==wanted[0] and drag.geometry is None
+        assert drag.face_index!=left_index, 'Right could not choose a different face from Left'
+        assert [f.index for f in drag.edit.bmesh(self.obj()).faces if f.select]==[wanted[0]]
+        assert geometry.snapshot(self.obj().data)==mesh_before, 'lock changed geometry'
         assert tuple(self.runtime().face_outline)==tuple(wanted[3])
         assert self.module.viewport.face_style(self.runtime())==self.module.viewport.LOCKED_COLOR
         self.mapped_vector(wanted[1]*.4)
         yield from self.until(lambda:drag.geometry is not None,'dwell-selected extrusion')
         assert tuple(self.runtime().face_outline)==tuple(drag.geometry.outline())
         assert drag.geometry.face_index==wanted[0]
+        self.line('rotate');yield .15
+        assert drag.mode=='EXTRUDE' and drag.face_index==wanted[0]
+        assert drag.geometry.topology_builds==1
         self.line('cancel');yield from self.until(lambda:self.runtime().drag is None,'hover cancel')
         assert not self.runtime().face_outline and geometry.snapshot(self.obj().data)==mesh_before
         yield from self.idle()
-        print('PASS face/empty/loss/gap/navigation reset real dwell; fresh lock matches displayed polygon/preview; exact cancel',flush=True)
+        print('PASS actual Face Select independent of Left hit; face/empty/loss/gap/navigation reset dwell; no-jump lock, no tool switch and exact cancel',flush=True)
 
         for release in ('Left','Right'):
             yield from self.start(uv=(.5,.5));self.right_pinch(event='START');yield from self.lock('EXTRUDE')
@@ -665,9 +688,10 @@ class Check(helpers.Check):
         # Active-preview Undo cancels before undoing previous completed edit.
         self.line('move x 1 units');yield .2
         moved=self.obj().matrix_world.copy();assert not same(moved,baseline)
-        yield from self.start();self.capture(right=palm(.55,.5));yield from self.lock('MOVE')
-        self.capture(right=palm(.6,.5));yield from self.wait_move((.6,.5),'preview before Undo')
+        yield from self.arm_extrusion('extrude plane xz axis z',index)
+        self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.geometry is not None,'edit preview before Undo')
         self.line('undo');yield from self.until_stable(lambda:self.runtime().drag is None and same(self.obj().matrix_world,baseline),'Undo during preview',settle=.2)
+        assert geometry.snapshot(self.obj().data)==mesh_before and self.obj().mode=='OBJECT'
         yield from self.idle()
         for reason in ('disconnect','disable'):
             yield from self.arm_extrusion('extrude plane xz axis z',index)
@@ -682,9 +706,12 @@ class Check(helpers.Check):
             yield from self.until(lambda:self.disconnections>detached,'old peer EOF')
             self.connect();yield from self.until(lambda:self.ready and self.module.bridge.ui_state()[0]=='Connected','reconnect')
             yield from self.idle()
+        yield from self.arm_extrusion('extrude plane xz axis z',index)
+        self.mapped_vector((0,0,.4));yield from self.until(lambda:self.runtime().drag.geometry is not None,'edit preview before shutdown')
         self.auto_frames=False;self.line('quit')
         yield from self.until(lambda:self.runtime() is None,'clean shutdown')
         yield from self.until(lambda:self.process.poll() is not None,'companion exit')
+        assert self.obj().mode=='OBJECT' and geometry.snapshot(self.obj().data)==mesh_before
         print('PASS preview Undo cancels first, disconnect/disable/reconnect/shutdown restore exact geometry and free resources',flush=True)
 
 

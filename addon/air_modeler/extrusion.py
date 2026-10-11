@@ -288,6 +288,18 @@ def candidates(obj):
     linear=obj.matrix_world.to_3x3()
     normal_matrix=linear.inverted().transposed()
     result=[]
+    if obj.mode == 'EDIT':
+        bm = bmesh.from_edit_mesh(obj.data)
+        bm.faces.ensure_lookup_table(); bm.faces.index_update()
+        for face in bm.faces:
+            if face.hide: continue
+            try: normal = validate_face(bm, face.index).normal.copy()
+            except ValueError: continue
+            outline = tuple(obj.matrix_world @ v.co for v in face.verts)
+            result.append((face.index, (normal_matrix @ normal).normalized(),
+                           sum(outline, Vector()) / len(outline), outline))
+        if not result: raise ValueError('No eligible visible editable triangular/quad face')
+        return result
     for polygon in obj.data.polygons:
         try:
             normal,vertices=face_info(obj,polygon.index)

@@ -84,6 +84,7 @@ class AIRMODELER_OT_commit_extrusion(bpy.types.Operator):
     vector: bpy.props.FloatVectorProperty(size=3)
     use_vector: bpy.props.BoolProperty(default=False)
     use_signed: bpy.props.BoolProperty(default=False)
+    prepared_id: bpy.props.StringProperty(default='')
     maximum_distance: bpy.props.FloatProperty()
     negligible_distance: bpy.props.FloatProperty()
 
@@ -94,6 +95,10 @@ class AIRMODELER_OT_commit_extrusion(bpy.types.Operator):
         if obj is None or context.mode != 'OBJECT':
             return {'CANCELLED'}
         try:
+            if self.prepared_id:
+                from . import edit_extrusion
+                edit_extrusion.adopt(obj, self.prepared_id)
+                return {'FINISHED'}
             config = replace(extrusion.CONFIG, maximum_distance=self.maximum_distance,
                              negligible_distance=self.negligible_distance)
             commit = signed_extrusion.commit if self.use_signed else extrusion.commit_vector if self.use_vector else extrusion.commit

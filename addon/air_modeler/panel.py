@@ -15,7 +15,9 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         if context.mode != "OBJECT":
-            layout.label(text="Switch to Object Mode to create meshes", icon="INFO")
+            owned = bridge._runtime and bridge._runtime.drag and getattr(bridge._runtime.drag, 'edit', None)
+            layout.label(text="Extrusion owns Edit Mode; release or cancel" if owned else
+                         "Return to Object Mode to start a gesture", icon="INFO")
         column = layout.column(align=True)
         for shape, label, _ in SHAPES:
             column.operator("air_modeler.create_primitive", text=f"Create {label}").shape = shape
@@ -23,7 +25,7 @@ class AIRMODELER_PT_primitives(bpy.types.Panel):
         state, message, error, running = bridge.ui_state()
         box.label(text=f"Bridge: {state}")
         box.label(text="Left selects; Right controls")
-        box.label(text="Extrude: pinch → hover 2s → drag")
+        box.label(text="Extrude: Edit → hover 2s → drag → Object")
         if bridge._runtime is not None:
             for line in textwrap.wrap(bridge._runtime.mode_label(), width=40):
                 box.label(text=line)
